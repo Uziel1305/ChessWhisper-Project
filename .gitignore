@@ -8,3 +8,41 @@ decision discusses with tamir.docx
 
 # Claude Code personal state (CLAUDE.md itself IS tracked)
 .claude/settings.local.json
+
+# ---- Secrets ----
+.env
+*.env.local
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+coverage/
+
+# ---- C++ build output ----
+build/
+*.o
+*.obj
+*.exe
+*.a
+*.lib
+*.so
+*.dll
+
+# ---- Android (protects the repo when Android Studio generates android/) ----
+.gradle/
+local.properties
+*.apk
+*.aab
+.cxx/
+captures/
+
+# ---- IDEs ----
+.idea/
+*.iml
+.vscode/
+
+# ---- OS junk ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
