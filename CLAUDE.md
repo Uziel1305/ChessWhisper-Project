@@ -40,3 +40,34 @@ The game server is a single Node.js process with a single HTTP listener serving 
 - Configuration flows through compose `environment:` entries (`DATABASE_URL`, `JWT_SECRET`, `ENGINE_URL`, `PORT`) — the same variables `server/.env.example` documents, so the server runs identically with or without Docker.
 - Repo impact: `docker-compose.yml` at the root; a `Dockerfile` + `.dockerignore` inside `server/` and `engine/`.
 - Rejected alternative: installing Node, PostgreSQL and a C++ toolchain directly on each developer's machine. Compose gives both teammates an identical, reproducible backend with one command.
+
+### Short-lived access JWT + rotating, hashed refresh tokens (decided July 2026)
+
+Login issues two tokens instead of one: a short-lived access JWT (15 min) that the
+auth middleware verifies locally on every request, and an opaque, long-lived refresh
+token (30 days) used only to silently obtain a new access token from
+`POST /api/auth/refresh`.
+
+- The refresh token itself is never stored — only its SHA-256 hash, in a new
+  `refresh_tokens` table (mirrors the password_hash principle: no usable secret at
+  rest). SHA-256, not bcrypt: the token is a 256-bit random value, not a low-entropy
+  user secret, so a fast deterministic hash is safe and — unlike a salted bcrypt
+  digest — can be indexed for O(1) lookup.
+- Every refresh rotates the token: the presented one is revoked and a new one takes
+  its place (`replaced_by_id` links the chain, `family_id` groups it). If an
+  already-revoked refresh token is ever presented again, every refresh token for
+  that user is revoked, forcing full re-login everywhere — the cheapest strong
+  signal available that a token was stolen and replayed.
+- `POST /api/auth/logout` revokes only the current device's refresh token, not every
+  session — logout-everywhere is a trivial follow-on (`revokeAllForUser`) if ever
+  needed, not built now.
+- Android never validates or decodes either token: it stores both
+  (EncryptedSharedPreferences), sends the access token on API calls, and calls
+  `/api/auth/refresh` on a 401 — consistent with the app carrying zero business logic.
+- The access JWT is the same one the WebSocket upgrade step verifies (per the
+  one-server decision above) — refresh tokens are REST-only and never touch the WS
+  handshake.
+- Rejected alternative: a single long-lived JWT for "stay logged in" (the original
+  plan). A stateless JWT can't be revoked before it expires, so logout or a stolen
+  device would leave it valid for its full lifetime; the refresh-token table gives
+  the server a place to kill access immediately.
