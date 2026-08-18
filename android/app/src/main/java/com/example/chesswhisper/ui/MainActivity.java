@@ -11,6 +11,9 @@ import androidx.core.view.WindowInsetsCompat;
 import com.example.chesswhisper.R;
 import com.example.chesswhisper.ui.register.RegisterActivity;
 
+// The launcher activity, still a placeholder. In CW-11 this becomes the login
+// screen: it will check for a stored session first and go straight to the home
+// screen if one exists, otherwise show the login form.
 public class MainActivity extends AppCompatActivity {
 
     @Override
@@ -23,6 +26,8 @@ public class MainActivity extends AppCompatActivity {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
+        // Temporary way in to the register screen. Once this is the login screen,
+        // it becomes the "Don't have an account? Register" link — the wiring stays.
         findViewById(R.id.goToRegisterButton).setOnClickListener(v ->
                 startActivity(new Intent(this, RegisterActivity.class)));
     }
