@@ -1,11 +1,11 @@
-package com.example.chesswhisper;
+package com.example.chesswhisper.ui.register;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
-import com.example.chesswhisper.network.ApiError;
-import com.example.chesswhisper.network.AuthRepository;
-import com.example.chesswhisper.network.RegisterResponse;
+import com.example.chesswhisper.data.network.ApiError;
+import com.example.chesswhisper.data.auth.AuthRepository;
+import com.example.chesswhisper.data.auth.model.RegisterResponse;
 
 public class RegisterViewModel extends ViewModel{
     public enum Status {IDLE, LOADING,SUCCESS,ERROR};

@@ -1,5 +1,7 @@
-package com.example.chesswhisper.network;
+package com.example.chesswhisper.data.network;
 import com.example.chesswhisper.BuildConfig;
+import com.example.chesswhisper.data.auth.AuthApi;
+
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 

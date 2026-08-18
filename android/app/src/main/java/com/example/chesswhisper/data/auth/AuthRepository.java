@@ -1,4 +1,8 @@
-package com.example.chesswhisper.network;
+package com.example.chesswhisper.data.auth;
+import com.example.chesswhisper.data.network.ApiClient;
+import com.example.chesswhisper.data.network.ApiError;
+import com.example.chesswhisper.data.auth.model.RegisterRequest;
+import com.example.chesswhisper.data.auth.model.RegisterResponse;
 import com.google.gson.Gson;
 import java.io.IOException;
 import retrofit2.Call;

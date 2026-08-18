@@ -1,4 +1,4 @@
-package com.example.chesswhisper.network;
+package com.example.chesswhisper.data.auth.model;
 
 public class RegisterRequest {
     private final String username;

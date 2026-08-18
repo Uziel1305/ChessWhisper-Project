@@ -1,4 +1,4 @@
-package com.example.chesswhisper;
+package com.example.chesswhisper.ui.register;
 
 import android.os.Bundle;
 import android.view.View;
@@ -14,6 +14,7 @@ import androidx.core.view.WindowInsetsCompat;
 
 import androidx.lifecycle.ViewModelProvider;
 
+import com.example.chesswhisper.R;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 

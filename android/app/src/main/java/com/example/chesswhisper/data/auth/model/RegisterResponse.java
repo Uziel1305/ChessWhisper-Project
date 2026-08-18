@@ -1,4 +1,4 @@
-package com.example.chesswhisper.network;
+package com.example.chesswhisper.data.auth.model;
 
 public class RegisterResponse {
     private int userId;

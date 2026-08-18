@@ -1,4 +1,4 @@
-package com.example.chesswhisper;
+package com.example.chesswhisper.ui;
 
 import android.os.Bundle;
 import android.content.Intent;
@@ -7,6 +7,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+
+import com.example.chesswhisper.R;
+import com.example.chesswhisper.ui.register.RegisterActivity;
 
 public class MainActivity extends AppCompatActivity {
 

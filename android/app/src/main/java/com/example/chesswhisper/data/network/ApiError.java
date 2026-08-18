@@ -1,4 +1,4 @@
-package com.example.chesswhisper.network;
+package com.example.chesswhisper.data.network;
 
 public class ApiError {
     private String error;
