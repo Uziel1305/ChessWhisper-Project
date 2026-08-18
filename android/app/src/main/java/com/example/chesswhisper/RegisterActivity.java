@@ -51,6 +51,7 @@ public class RegisterActivity extends AppCompatActivity {
                 usernameInput.getText().toString(),
                 passwordInput.getText().toString()
         ));
+        findViewById(R.id.backButton).setOnClickListener(v -> finish());
     }
     public void render(RegisterViewModel.RegisterState state){
         if(state.status==RegisterViewModel.Status.LOADING){
