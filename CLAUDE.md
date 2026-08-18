@@ -71,3 +71,24 @@ token (30 days) used only to silently obtain a new access token from
   plan). A stateless JWT can't be revoked before it expires, so logout or a stolen
   device would leave it valid for its full lifetime; the refresh-token table gives
   the server a place to kill access immediately.
+
+### `MainActivity` is the login screen (decided August 2026)
+
+The launcher activity is the login screen itself — not a dedicated router activity and
+not the home screen:
+
+- `MainActivity.onCreate()` checks for a stored session (the tokens in
+  EncryptedSharedPreferences, per the refresh-token decision above) before inflating
+  the login form. If a session exists it starts the home activity and `finish()`es,
+  which is what CW-11 requires: reopening the app goes straight to the home screen.
+- Registration lives in its own `RegisterActivity`, reached from a "Don't have an
+  account? Register" link on the login screen. It is never the launcher — the app's
+  entry point is always login-or-home.
+- The home screen (CW-12, profile + rating) is therefore a separate activity, not
+  `MainActivity`.
+- Keeps the activity count low and reuses the template's
+  `windowSoftInputMode="adjustResize"` already set on `MainActivity`, which is exactly
+  what a credentials form wants.
+- Rejected alternative: a thin no-UI router activity as the launcher that dispatches to
+  Login or Home. Cleaner separation on paper, but it adds a third activity to carry what
+  is a four-line branch in `onCreate()`.
