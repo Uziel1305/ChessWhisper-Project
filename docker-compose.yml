@@ -20,6 +20,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       PORT: ${PORT}
+      JWT_SECRET: ${JWT_SECRET}
+
     ports:
       - "${PORT}:${PORT}"
 
