@@ -15,6 +15,18 @@ async function findByUsername(username){
     return result.rows[0];
 }
 
+
+async function findById(id){
+    // $1 is a bound parameter, not string interpolation — the value can never
+    // be parsed as SQL, so this is injection-safe by construction.
+    const result= await pool.query(
+        'SELECT id, username, rating, created_at FROM users WHERE id=$1',
+        [id]
+    );
+    // undefined when there is no match, which reads naturally at the call site.
+    return result.rows[0];
+}
+
 async function insert(username, passwordHash){
     try{
             // RETURNING gives back the generated id in the same round trip,
@@ -37,5 +49,5 @@ async function insert(username, passwordHash){
     }
 }
 
-module.exports={findByUsername,insert,DuplicateUsernameError};
+module.exports={findByUsername,insert,DuplicateUsernameError,findById};
 

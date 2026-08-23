@@ -92,3 +92,48 @@ not the home screen:
 - Rejected alternative: a thin no-UI router activity as the launcher that dispatches to
   Login or Home. Cleaner separation on paper, but it adds a third activity to carry what
   is a four-line branch in `onCreate()`.
+
+### The home screen is laid out for what it becomes (decided August 2026)
+
+The home screen carries more views than CW-12 needs, because it is the hub every later
+story hangs off and re-laying it out each time is worse than drawing the shell once:
+
+- Top to bottom: a large top app bar on `colorPrimaryContainer` ("Signed in as" above the
+  username), a two-tile stat strip (Rating | Games), a "Recent games" section, and a Play
+  button pinned at the bottom.
+- Only **username and rating** come from `GET /api/users/me`. Games shows a hardcoded `0`
+  and the history section a "No games yet" empty state — both *literally true* today,
+  since no game can be played yet, so they read as real empty states rather than
+  placeholders. When the games story lands only the source changes, not the layout.
+- The hardcoded `0` silently becomes wrong the day games are recorded and nothing will
+  fail, so `gamesText` and `historyEmpty` carry a comment naming the ticket that replaces
+  them.
+- **Play is `enabled="false"`** until a matchmaking activity exists. A live button with no
+  click listener reads as broken; a disabled one reads as not built yet.
+- The app bar bleeds to the screen edges, so it needs negative horizontal margins to
+  escape the 24dp `R.dimen.screen_padding` that the insets listener applies to the root
+  (`setPadding` replaces rather than adds — same reason `RegisterActivity` applies its
+  padding in code).
+- App bar and stat strip start `GONE` and appear only on success, so the header never
+  flashes blank while the request is in flight.
+- Rejected alternatives: a centered layout mirroring `activity_register.xml`, and a
+  `MaterialCardView` profile card. Both look better with only two fields on screen, but
+  both need rebuilding once Play and History arrive, and the card would introduce the
+  project's first card component for one screen.
+
+### `GET /api/users/me` answers 404 for a deleted user (decided August 2026)
+
+A valid access token whose `sub` names a row that no longer exists returns
+`404 { error: 'user_not_found' }`, not 401:
+
+- `requireAuth` never produces a 404 — it only returns 401, in three branches
+  (missing/malformed header, `TokenExpiredError` → `access_token_expired`, and any other
+  verify failure). The 404 comes from the route handler's `if (!user)` guard after
+  `usersRepo.findById` returns `undefined`.
+- 401 would be wrong: the signature is genuine and unexpired, so nothing is wrong with the
+  token. The client's correct reaction differs too — a 401 means "refresh or re-login", a
+  404 means "this account is gone, nothing will fix it".
+- Without the guard, `user.username` on `undefined` throws, Express 5 catches the async
+  rejection, and the caller gets a default HTML 500 with no envelope — a silent failure.
+- `server/test/users.test.js` asserts this. The decision appears in no ticket text, so
+  that test is its only record in the repo.
