@@ -1,7 +1,16 @@
 package com.example.chesswhisper.data.network;
 import com.example.chesswhisper.BuildConfig;
 import com.example.chesswhisper.data.auth.AuthApi;
+import com.example.chesswhisper.data.auth.SessionManager;
+import com.example.chesswhisper.data.auth.model.RefreshResponse;
+import com.example.chesswhisper.data.auth.model.RefreshTokenRequest;
 
+import java.io.IOException;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.Route;
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
@@ -30,6 +39,7 @@ public final class ApiClient {
                             baseUrl(BuildConfig.BASE_URL)
                             // Gson handles JSON in both directions for every endpoint.
                             .addConverterFactory(GsonConverterFactory.create())
+                            .client(buildOkHttpClient())
                             .build();
                     authApi=retrofit.create(AuthApi.class);
                 }
@@ -39,6 +49,72 @@ public final class ApiClient {
         return authApi;
     }
 
-    // CW-11 adds an OkHttpClient here, with an interceptor that attaches the
-    // access token and an authenticator that refreshes it on a 401.
+    private static OkHttpClient buildOkHttpClient() {
+        return new OkHttpClient.Builder()
+                // Attaches the stored access token to every outgoing call. Doing
+                // this unconditionally (including on /login, /register, /refresh)
+                // is harmless — none of those routes read Authorization — and it
+                // avoids maintaining a path-exclusion list here.
+                .addInterceptor(chain -> {
+                    Request original = chain.request();
+                    String accessToken = SessionManager.getInstance().getAccessToken();
+                    if (accessToken == null) {
+                        return chain.proceed(original);
+                    }
+                    Request authed = original.newBuilder()
+                            .header("Authorization", "Bearer " + accessToken)
+                            .build();
+                    return chain.proceed(authed);
+                })
+                // Runs automatically when a response comes back 401. Refreshes
+                // the access token once and retries; if that fails, the caller
+                // just sees the original 401 — there is no protected route yet
+                // for this to exercise (that arrives with CW-12).
+                .authenticator((route, response) -> {
+                    if (responseCount(response) > 1) {
+                        // Already retried once with a freshly refreshed token and
+                        // still got a 401 — refreshing again would loop forever.
+                        return null;
+                    }
+                    String refreshToken = SessionManager.getInstance().getRefreshToken();
+                    if (refreshToken == null) {
+                        return null;
+                    }
+                    try {
+                        retrofit2.Response<RefreshResponse> refreshed = getAuthApi()
+                                .refresh(new RefreshTokenRequest(refreshToken))
+                                // Authenticator runs on OkHttp's own thread and must
+                                // block — enqueue() would return before this could
+                                // use the result.
+                                .execute();
+                        if (!refreshed.isSuccessful() || refreshed.body() == null) {
+                            // Refresh token invalid/expired/reused — the session is
+                            // dead, so there is nothing left worth keeping locally.
+                            SessionManager.getInstance().clearSession();
+                            return null;
+                        }
+                        RefreshResponse body = refreshed.body();
+                        SessionManager.getInstance().saveSession(
+                                body.getAccessToken(), body.getRefreshToken(), SessionManager.getInstance().getUserId());
+                        return response.request().newBuilder()
+                                .header("Authorization", "Bearer " + body.getAccessToken())
+                                .build();
+                    } catch (IOException e) {
+                        // Refresh call itself couldn't reach the server — give up on
+                        // this request rather than retrying indefinitely.
+                        return null;
+                    }
+                })
+                .build();
+    }
+
+    // Standard OkHttp recipe for counting prior attempts on the same request
+    // chain, so the Authenticator above can bail out instead of looping.
+    private static int responseCount(Response response) {
+        int result = 1;
+        while ((response = response.priorResponse()) != null) {
+            result++;
+        }
+        return result;
+    }
 }

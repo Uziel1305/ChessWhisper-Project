@@ -1,6 +1,9 @@
 package com.example.chesswhisper.data.auth;
 import com.example.chesswhisper.data.network.ApiClient;
 import com.example.chesswhisper.data.network.ApiError;
+import com.example.chesswhisper.data.auth.model.LoginRequest;
+import com.example.chesswhisper.data.auth.model.LoginResponse;
+import com.example.chesswhisper.data.auth.model.RefreshTokenRequest;
 import com.example.chesswhisper.data.auth.model.RegisterRequest;
 import com.example.chesswhisper.data.auth.model.RegisterResponse;
 import com.google.gson.Gson;
@@ -18,6 +21,15 @@ public class AuthRepository {
     public interface RegisterCallback{
         void onSuccess(RegisterResponse response);
         void onError(ApiError error);
+    }
+
+    public interface LoginCallback {
+        void onSuccess(LoginResponse response);
+        void onError(ApiError error);
+    }
+
+    public interface LogoutCallback {
+        void onComplete();
     }
 
     private final AuthApi authApi= ApiClient.getAuthApi();
@@ -51,8 +63,60 @@ public class AuthRepository {
         call.enqueue(callback2);
     }
 
+    public void login(String username, String password, LoginCallback callback) {
+        LoginRequest request = new LoginRequest(username, password);
+        authApi.login(request).enqueue(new Callback<LoginResponse>() {
+            @Override
+            public void onResponse(Call<LoginResponse> call, Response<LoginResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    LoginResponse body = response.body();
+                    // Persisted here, not in the ViewModel — the ViewModel should
+                    // know as little about storage as it does about HTTP.
+                    SessionManager.getInstance().saveSession(
+                            body.getAccessToken(), body.getRefreshToken(), body.getUserId());
+                    callback.onSuccess(body);
+                } else {
+                    // 400 validation_error / 401 invalid_credentials land here.
+                    callback.onError(parseError(response));
+                }
+            }
+
+            @Override
+            public void onFailure(Call<LoginResponse> call, Throwable t) {
+                callback.onError(new ApiError("network_error", "Unable to reach server. Check your connection."));
+            }
+        });
+    }
+
+    // Used by LogoutButton-style callers, if/when one exists. Clears the local
+    // session regardless of how the server call goes — an offline user still
+    // expects to be logged out on this device.
+    public void logout(LogoutCallback callback) {
+        String refreshToken = SessionManager.getInstance().getRefreshToken();
+        SessionManager.getInstance().clearSession();
+        if (refreshToken == null) {
+            callback.onComplete();
+            return;
+        }
+        authApi.logout(new RefreshTokenRequest(refreshToken)).enqueue(new Callback<Void>() {
+            @Override
+            public void onResponse(Call<Void> call, Response<Void> response) {
+                callback.onComplete();
+            }
+
+            @Override
+            public void onFailure(Call<Void> call, Throwable t) {
+                // Local session is already cleared; the server-side revoke not
+                // landing just means that refresh token dies of natural expiry.
+                callback.onComplete();
+            }
+        });
+    }
+
     // Turns the server's JSON error body into an ApiError the UI can display.
-    private ApiError parseError(Response<RegisterResponse> response) {
+    // Generic over the response's body type so both register's and login's
+    // Response<T> can share this without duplicating the parsing logic.
+    private <T> ApiError parseError(Response<T> response) {
         try {
             if (response.errorBody() != null) {
                 return new Gson().fromJson(response.errorBody().string(), ApiError.class);
