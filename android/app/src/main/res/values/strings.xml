@@ -6,4 +6,23 @@
     <string name="register_submit">Register</string>
     <string name="register_success">Account created. You can now log in.</string>
     <string name="register_back">Back</string>
+
+
+    <string name="home_signed_in_as">Signed in as</string>
+    <string name="home_rating_label">Rating</string>
+    <string name="home_games_label">Games</string>
+    <string name="home_recent_games">Recent games</string>
+    <string name="home_no_games">No games yet</string>
+    <string name="home_play">Play</string>
+    <string name="home_retry">Try again</string>
+
+    <!--
+      Hardcoded until the games story lands — there is no games table to count
+      yet. True today: nobody can play, so every player really has zero games.
+    -->
+    <string name="home_games_none" translatable="false">0</string>
+
+    <string name="home_no_token">Not signed in. Log in to see your profile.</string>
+
+
 </resources>
