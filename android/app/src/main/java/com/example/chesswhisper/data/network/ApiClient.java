@@ -71,6 +71,18 @@ public final class ApiClient {
                 // just sees the original 401 — there is no protected route yet
                 // for this to exercise (that arrives with CW-12).
                 .authenticator((route, response) -> {
+                    // Never try to "fix" a 401 from the auth endpoints themselves
+                    // by calling /refresh: on /refresh that's the reuse-detection
+                    // trap (a dead token 401s, this fires, calls /refresh again
+                    // with the same dead token via a brand-new .execute() call
+                    // that has its own fresh follow-up budget and prior-response
+                    // chain, so responseCount below never trips — unbounded
+                    // recursion). On /login it would just waste a round trip
+                    // retrying what's really an invalid_credentials 401.
+                    String path = response.request().url().encodedPath();
+                    if (path.startsWith("/api/auth/")) {
+                        return null;
+                    }
                     if (responseCount(response) > 1) {
                         // Already retried once with a freshly refreshed token and
                         // still got a 401 — refreshing again would loop forever.

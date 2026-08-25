@@ -3,6 +3,7 @@ import com.example.chesswhisper.data.network.ApiClient;
 import com.example.chesswhisper.data.network.ApiError;
 import com.example.chesswhisper.data.auth.model.LoginRequest;
 import com.example.chesswhisper.data.auth.model.LoginResponse;
+import com.example.chesswhisper.data.auth.model.RefreshResponse;
 import com.example.chesswhisper.data.auth.model.RefreshTokenRequest;
 import com.example.chesswhisper.data.auth.model.RegisterRequest;
 import com.example.chesswhisper.data.auth.model.RegisterResponse;
@@ -30,6 +31,16 @@ public class AuthRepository {
 
     public interface LogoutCallback {
         void onComplete();
+    }
+
+    // Used only by MainActivity's CW-18 startup check. Three outcomes, not
+    // two: a confirmed-dead session (server said no) must clear local storage,
+    // but a network failure must not — the token might still be good, and the
+    // user shouldn't be forced to re-login just because they had no signal.
+    public interface RefreshCallback {
+        void onSuccess();
+        void onSessionExpired();
+        void onNetworkError();
     }
 
     private final AuthApi authApi= ApiClient.getAuthApi();
@@ -84,6 +95,41 @@ public class AuthRepository {
             @Override
             public void onFailure(Call<LoginResponse> call, Throwable t) {
                 callback.onError(new ApiError("network_error", "Unable to reach server. Check your connection."));
+            }
+        });
+    }
+
+    // CW-18: called once at app startup when a refresh token is already stored,
+    // to confirm server-side that it's still good before trusting it — rather
+    // than just trusting whatever is sitting in local storage.
+    public void refreshSession(RefreshCallback callback) {
+        String refreshToken = SessionManager.getInstance().getRefreshToken();
+        if (refreshToken == null) {
+            callback.onSessionExpired();
+            return;
+        }
+        authApi.refresh(new RefreshTokenRequest(refreshToken)).enqueue(new Callback<RefreshResponse>() {
+            @Override
+            public void onResponse(Call<RefreshResponse> call, Response<RefreshResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    RefreshResponse body = response.body();
+                    SessionManager.getInstance().saveSession(
+                            body.getAccessToken(), body.getRefreshToken(), SessionManager.getInstance().getUserId());
+                    callback.onSuccess();
+                } else {
+                    // 401 invalid_refresh_token / refresh_token_expired /
+                    // refresh_token_reused — the server has confirmed this
+                    // session is dead, so there is nothing left worth keeping.
+                    SessionManager.getInstance().clearSession();
+                    callback.onSessionExpired();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<RefreshResponse> call, Throwable t) {
+                // Couldn't reach the server at all — deliberately NOT clearing
+                // the session here, unlike the 401 branch above.
+                callback.onNetworkError();
             }
         });
     }

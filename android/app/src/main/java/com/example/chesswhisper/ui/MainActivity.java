@@ -14,6 +14,7 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.example.chesswhisper.R;
+import com.example.chesswhisper.data.auth.AuthRepository;
 import com.example.chesswhisper.data.auth.SessionManager;
 import com.example.chesswhisper.ui.register.RegisterActivity;
 import com.google.android.material.button.MaterialButton;
@@ -22,25 +23,20 @@ import com.google.android.material.textfield.TextInputEditText;
 // The launcher activity — and, per CLAUDE.md's "MainActivity is the login
 // screen" decision, the login screen itself, not a router to a separate one.
 public class MainActivity extends AppCompatActivity {
+    private View loginForm;
+    private View offlineState;
+    private MaterialButton retryButton;
     private TextInputEditText usernameInput;
     private TextInputEditText passwordInput;
     private TextView errorText;
     private MaterialButton submitButton;
     private ProgressBar progressBar;
     private MainViewModel viewModel;
+    private final AuthRepository authRepository = new AuthRepository();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // Checked before any UI is inflated: reopening the app with a stored
-        // session goes straight to Home, the login form is never shown.
-        if (SessionManager.getInstance().hasSession()) {
-            startActivity(new Intent(this, HomeActivity.class));
-            finish();
-            return;
-        }
-
         // Draws behind the status and navigation bars; the listener below then
         // pads the content back out from underneath them.
         EdgeToEdge.enable(this);
@@ -58,11 +54,67 @@ public class MainActivity extends AppCompatActivity {
             return insets;
         });
 
+        loginForm = findViewById(R.id.loginForm);
+        offlineState = findViewById(R.id.offlineState);
+        retryButton = findViewById(R.id.retryButton);
         usernameInput = findViewById(R.id.usernameInput);
         passwordInput = findViewById(R.id.passwordInput);
         errorText = findViewById(R.id.errorText);
         submitButton = findViewById(R.id.submitButton);
         progressBar = findViewById(R.id.progressBar);
+        retryButton.setOnClickListener(v -> checkSessionOrShowLogin());
+
+        checkSessionOrShowLogin();
+    }
+
+    // Runs the CW-18 startup check, and doubles as the Retry button's action:
+    // a stored refresh token is not, on its own, proof of a live session —
+    // this confirms it server-side before trusting it.
+    private void checkSessionOrShowLogin() {
+        if (!SessionManager.getInstance().hasSession()) {
+            showLoginForm();
+            return;
+        }
+        // Both other states stay hidden behind the spinner until this resolves.
+        loginForm.setVisibility(View.GONE);
+        offlineState.setVisibility(View.GONE);
+        progressBar.setVisibility(View.VISIBLE);
+        authRepository.refreshSession(new AuthRepository.RefreshCallback() {
+            @Override
+            public void onSuccess() {
+                if (isFinishing() || isDestroyed()) return;
+                startActivity(new Intent(MainActivity.this, HomeActivity.class));
+                finish();
+            }
+
+            @Override
+            public void onSessionExpired() {
+                // The repository already cleared local storage — this
+                // device now has no session, same as a fresh install.
+                if (isFinishing() || isDestroyed()) return;
+                showLoginForm();
+            }
+
+            @Override
+            public void onNetworkError() {
+                // Session was left untouched — it might still be perfectly
+                // valid, we just couldn't confirm that right now. Don't make
+                // the user re-enter credentials for what may be a connectivity
+                // blip: offer Retry instead of the login form.
+                if (isFinishing() || isDestroyed()) return;
+                progressBar.setVisibility(View.GONE);
+                offlineState.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    // Wires up and reveals the login form. Called either immediately (no
+    // stored session) or after the CW-18 startup check above concludes the
+    // stored session can't be trusted.
+    private void showLoginForm() {
+        progressBar.setVisibility(View.GONE);
+        offlineState.setVisibility(View.GONE);
+        loginForm.setVisibility(View.VISIBLE);
 
         // Tied to this Activity, so the same instance comes back after a rotation.
         viewModel = new ViewModelProvider(this).get(MainViewModel.class);

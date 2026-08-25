@@ -11,4 +11,6 @@
     <string name="login_password_hint">Password</string>
     <string name="login_submit">Log in</string>
     <string name="login_register_link">Don\'t have an account? Register</string>
+    <string name="login_offline_message">Couldn\'t reach the server. Check your connection and try again.</string>
+    <string name="login_retry">Retry</string>
 </resources>
