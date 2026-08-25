@@ -137,3 +137,57 @@ A valid access token whose `sub` names a row that no longer exists returns
   rejection, and the caller gets a default HTML 500 with no envelope — a silent failure.
 - `server/test/users.test.js` asserts this. The decision appears in no ticket text, so
   that test is its only record in the repo.
+
+### Time control is a constructor argument, never a literal (decided August 2026)
+
+Support for 3/5/10-minute games is built into the first version of the clock, even though
+choosing a time control is a later story:
+
+- `clock.js` takes its starting duration as a constructor argument. There is no `600000`
+  literal anywhere in the file; the value travels from the queue key into the game.
+- `games.time_control_ms` exists from `002_games.sql`, so every stored game records what it
+  was played at.
+- `queue.join` carries `{mode, timeControl}` from its first version — the payload the
+  architecture document already specifies. Building it without `timeControl` would mean
+  knowingly shipping a protocol that has to change on both the server and the Android client.
+- The matchmaking queue is keyed by `(mode, timeControl)` so a 3-minute player is never
+  paired with a 10-minute one. The **picker UI** is deliberately deferred: it is cheap
+  whenever it is built, and before rating-based matchmaking exists there is nobody waiting at
+  the other time controls anyway.
+- Rejected alternative: hardcode 10 minutes now and add the other controls later. The feature
+  is worth almost nothing on its own, but retrofitting it reopens the clock, the queue, the
+  schema and the UI at once — an expensive change bought for a cheap feature.
+
+### The custom engine is built behind a Stockfish scaffold (decided August 2026)
+
+The eval bar and instant-feedback modes are wired to Stockfish behind the engine facade while
+the custom C++ engine is still being written, and the engine is swapped in at the end:
+
+- Both features need *an* evaluation, not a *good* one — the bar renders a number and
+  classification derives cp-loss from consecutive evaluations. Neither depends on engine
+  strength, so neither should wait on engine progress.
+- Without this, the two features sit behind the project's single biggest unknown (perft
+  debugging on hand-written move generation). With it, they are finished and demoable weeks
+  before the engine is, and a slipping engine costs evaluation *quality* rather than features.
+- The swap is a one-line facade config change, and Stockfish stays in the repo afterwards as
+  the benchmark that validates the custom engine's evaluations against a known-good reference.
+- **Stockfish is never the deliverable.** The shipped product runs the custom engine — this is
+  what `ProjectArchitectureDocument-43.docx` Objective 2 requires ("custom AI-based chess
+  engines"), and §6 of the proposal already sanctions the stand-in-plus-benchmark pattern.
+- Rejected alternative: block the eval bar and feedback on the custom engine being finished.
+  It puts two of the four highest-priority features behind the riskiest work in the project,
+  with no fallback if the engine runs late.
+
+### Engine capacity, not the game server, limits concurrent games (decided August 2026)
+
+The ≥100-concurrent-games target is an engine-pool question:
+
+- The Node server is not the constraint. Games are idle almost all the time, chess.js
+  validation is microseconds, per-game state is a few KB, and 100 games is 200 sockets.
+- The engine is: a 200 ms budget with one worker per core gives ~5 evaluations/sec/core, and
+  100 concurrent 10-minute games need ~13/sec. Four cores fits with headroom; two does not.
+- Therefore **one evaluation per committed half-move, never continuous** — and that single
+  evaluation serves both the bar and the classification. Evaluating twice halves capacity.
+- `clock.js` computes remaining time from timestamps with one `setTimeout` per game for the
+  flag deadline, rather than a `setInterval` tick per game — at 100 games the latter is ~1000
+  wakeups a second computing values nobody reads.
