@@ -7,6 +7,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import com.example.chesswhisper.ui.home.HomeActivity;
 
 import com.example.chesswhisper.R;
 import com.example.chesswhisper.ui.register.RegisterActivity;
@@ -28,7 +29,13 @@ public class MainActivity extends AppCompatActivity {
         });
         // Temporary way in to the register screen. Once this is the login screen,
         // it becomes the "Don't have an account? Register" link — the wiring stays.
-        findViewById(R.id.goToRegisterButton).setOnClickListener(v ->
-                startActivity(new Intent(this, RegisterActivity.class)));
+        // TEMPORARY — CW-24 manual pass only. Delete before committing.
+        // TEMPORARY — CW-24 manual pass only. Delete before committing.
+        findViewById(R.id.goToRegisterButton).setOnClickListener(v -> {
+            Intent i = new Intent(this, HomeActivity.class);
+            i.putExtra(HomeActivity.EXTRA_ACCESS_TOKEN,
+                    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzOCIsImlhdCI6MTc4NzYzNzA3NCwiZXhwIjoxNzg3NjQ0Mjc0fQ.7y3SClTYGHWYjGxo388Ht2DMBRwF7oFq8fRN8Nf_6UY");
+            startActivity(i);
+        });
     }
 }

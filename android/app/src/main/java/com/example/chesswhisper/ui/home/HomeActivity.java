@@ -67,14 +67,9 @@ public class HomeActivity extends AppCompatActivity {
                 load();
             }
         });
+        load();
     }
     private void load(){
-        if (accessToken == null) {
-            showMissingToken();
-            return;
-        }
-        // Safe to call on every onCreate: the ViewModel survives rotation and
-        // ignores this unless it is IDLE or ERROR.
         viewModel.load(accessToken);
     }
     // Until CW-11 exists nothing starts this activity with a token, so this is
@@ -87,17 +82,33 @@ public class HomeActivity extends AppCompatActivity {
         retryButton.setEnabled(false);
     }
 
-    // Single place that turns a state into what is on screen. The three groups
+    // Single place that turns a state into what is on screen. All three groups
     // are set unconditionally, so exactly one is visible however you got here
     // and no stale spinner or error survives into the next state.
     public void render(HomeViewModel.HomeState state) {
-        progressBar.setVisibility(state.status == HomeViewModel.Status.LOADING ? View.VISIBLE : View.GONE);
-        successGroup.setVisibility(state.status == HomeViewModel.Status.SUCCESS ? View.VISIBLE : View.GONE);
-        errorGroup.setVisibility(state.status == HomeViewModel.Status.ERROR ? View.VISIBLE : View.GONE);
+        progressBar.setVisibility(
+                state.status == HomeViewModel.Status.LOADING ? View.VISIBLE : View.GONE);
+
+        successGroup.setVisibility(
+                state.status == HomeViewModel.Status.SUCCESS ? View.VISIBLE : View.GONE);
+
+        // Both failure states share the same group — the difference is the text
+        // and whether retrying can help.
+        errorGroup.setVisibility(
+                state.status == HomeViewModel.Status.ERROR
+                        || state.status == HomeViewModel.Status.NO_TOKEN
+                        ? View.VISIBLE : View.GONE);
 
         if (state.status == HomeViewModel.Status.SUCCESS && state.profile != null) {
             usernameText.setText(state.profile.getUsername());
             ratingText.setText(String.valueOf(state.profile.getRating()));
+        }
+
+        if (state.status == HomeViewModel.Status.NO_TOKEN) {
+            // App copy, so it comes from a string resource — there is no server
+            // message here because no request was ever sent.
+            errorText.setText(R.string.home_no_token);
+            retryButton.setEnabled(false);
         }
 
         if (state.status == HomeViewModel.Status.ERROR && state.error != null) {
