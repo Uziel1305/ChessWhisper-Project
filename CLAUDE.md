@@ -72,23 +72,30 @@ token (30 days) used only to silently obtain a new access token from
   device would leave it valid for its full lifetime; the refresh-token table gives
   the server a place to kill access immediately.
 
-### `MainActivity` is the login screen (decided August 2026)
+### `LoginActivity` is the launcher (decided August 2026)
 
 The launcher activity is the login screen itself — not a dedicated router activity and
 not the home screen:
 
-- `MainActivity.onCreate()` checks for a stored session (the tokens in
+- `LoginActivity.onCreate()` checks for a stored session (the tokens in
   EncryptedSharedPreferences, per the refresh-token decision above) before inflating
   the login form. If a session exists it starts the home activity and `finish()`es,
   which is what CW-11 requires: reopening the app goes straight to the home screen.
+- A stored refresh token is not by itself proof of a live session, so the check confirms
+  it against `/api/auth/refresh` rather than trusting local state. A network failure
+  during that check offers Retry rather than the login form — the session may well still
+  be valid, and making the user re-enter credentials over a connectivity blip is wrong.
 - Registration lives in its own `RegisterActivity`, reached from a "Don't have an
   account? Register" link on the login screen. It is never the launcher — the app's
   entry point is always login-or-home.
-- The home screen (CW-12, profile + rating) is therefore a separate activity, not
-  `MainActivity`.
+- The home screen (CW-12, profile + rating) is therefore a separate activity, not the
+  launcher.
+- Each screen lives in its own `ui/` subpackage — `ui.login`, `ui.home`, `ui.register` —
+  with its Activity and ViewModel together. Only `SessionAwareActivity` sits directly in
+  `ui`, since it belongs to no single screen. It is `abstract` and must **not** be
+  declared in the manifest.
 - Keeps the activity count low and reuses the template's
-  `windowSoftInputMode="adjustResize"` already set on `MainActivity`, which is exactly
-  what a credentials form wants.
+  `windowSoftInputMode="adjustResize"`, which is exactly what a credentials form wants.
 - Rejected alternative: a thin no-UI router activity as the launcher that dispatches to
   Login or Home. Cleaner separation on paper, but it adds a third activity to carry what
   is a four-line branch in `onCreate()`.
@@ -191,3 +198,71 @@ The ≥100-concurrent-games target is an engine-pool question:
 - `clock.js` computes remaining time from timestamps with one `setTimeout` per game for the
   flag deadline, rather than a `setInterval` tick per game — at 100 games the latter is ~1000
   wakeups a second computing values nobody reads.
+
+### One writer for the `Authorization` header (decided August 2026)
+
+`ApiClient`'s OkHttp interceptor is the only code in the app that sets `Authorization`.
+No Retrofit interface declares a `@Header("Authorization")` parameter, and no repository,
+ViewModel or Activity handles a token:
+
+- `UserApi.me()` takes no arguments. The interceptor reads the access token from
+  `SessionManager` and attaches it to every outgoing request, including `/register`,
+  `/login` and `/refresh` — none of those read the header, and excluding them would mean
+  maintaining a path list.
+- Two writers is worse than it looks: the interceptor uses `.header()`, which *replaces*
+  rather than appends, so an explicitly-passed token is silently discarded whenever a
+  session exists. The bug is invisible until there is no session, which is exactly when
+  testing is least likely to catch it.
+- CW-12 was built before the interceptor existed and did pass the header explicitly, so
+  the two stories could be developed in parallel without a compile-time dependency. That
+  parameter was removed in the same commit that adopted the interceptor.
+- Consequence for every future screen: a 401 reaching a repository's `onResponse` means
+  the authenticator already tried refreshing and failed. There is nothing left for the
+  calling layer to do about tokens.
+
+### A dead session is broadcast, not detected per screen (decided August 2026)
+
+When a refresh fails, `SessionManager` announces it and screens react — no screen inspects
+error codes to work out that it has been logged out:
+
+- `SessionManager` exposes `sessionEnded` as `LiveData`. `clearSession()` sets it true,
+  `saveSession()` sets it back to false. **`postValue`, not `setValue`** — `clearSession()`
+  is called from `ApiClient`'s authenticator, which runs on an OkHttp thread.
+- The reset in `saveSession()` is not optional: `LiveData` replays its current value to
+  every new observer, so a permanently-true flag would bounce the next screen straight
+  back to login, forever.
+- `SessionAwareActivity` is the base class for every screen that needs a session. It
+  observes the flag and navigates to `LoginActivity` with
+  `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK`, so "back" cannot walk into a screen
+  whose session just died. `LoginActivity` and `RegisterActivity` deliberately do **not**
+  extend it — the first is the destination, the second needs no session.
+- Why not check the error code instead: the 401 that surfaces is the *original* request's,
+  so its message says "access token expired" when the real cause was a dead refresh token.
+  It describes step one of a story that ended somewhere else.
+- `HomeActivity.render()` additionally returns early when `hasSession()` is false. Both the
+  session signal and the Retrofit callback are posted to the main thread, and while the
+  signal is normally posted first, `finish()` is not synchronous — so the error branch can
+  still run and flash a misleading message. `apply()` updates SharedPreferences' in-memory
+  map synchronously, which makes `hasSession()` a reliable check where the ordering is not.
+- In practice this fires rarely today: `LoginActivity` re-checks the session on every cold
+  start, so a dead session is usually caught before the home screen is created. The base
+  class is a safety net for screens that make requests after startup.
+
+### Unexpected server failures still return Express's default 500 (deferred August 2026)
+
+The server has no error-handling middleware. An unexpected throw in a route produces
+Express 5's default **HTML** 500, not the project's `{error, message}` envelope:
+
+- `auth.routes.js` catches only `DuplicateUsernameError` and re-throws everything else;
+  `users.routes.js` catches nothing. Both rely on this default.
+- On Android this is survivable but lossy: `ApiErrors.from` cannot parse an HTML body, so
+  the user sees the generic "Something went wrong. Please try again." rather than anything
+  specific. `ApiErrors` catches `JsonSyntaxException` as well as `IOException` precisely
+  because of this — Gson throws a `RuntimeException` on HTML, which the original
+  `AuthRepository.parseError` did not catch.
+- The fix is one middleware in `app.js` after the route mounts, about six lines, and it
+  would cover every route at once. Deliberately deferred rather than solved with a
+  `try/catch` per route, which would duplicate endlessly and make one handler behave
+  differently from its neighbours.
+- Known cost: a `TypeError` in a handler surfaces as a bodiless 500 whose real message is
+  only visible via `docker compose logs server`.

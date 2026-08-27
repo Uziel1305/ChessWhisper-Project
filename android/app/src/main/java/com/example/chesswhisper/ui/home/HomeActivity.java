@@ -6,7 +6,6 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -14,13 +13,15 @@ import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.example.chesswhisper.R;
+import com.example.chesswhisper.data.auth.SessionManager;
+import com.example.chesswhisper.ui.SessionAwareActivity;
 import com.google.android.material.button.MaterialButton;
 
 // The home screen. It only renders state — the username and rating come straight
 // from GET /api/users/me and are never computed or cached here.
 
-public class HomeActivity extends AppCompatActivity {
-    public static final String EXTRA_ACCESS_TOKEN="access_token";
+public class HomeActivity extends SessionAwareActivity {
+
     private View successGroup;
     private View errorGroup;
     private TextView usernameText;
@@ -29,7 +30,6 @@ public class HomeActivity extends AppCompatActivity {
     private ProgressBar progressBar;
     private MaterialButton retryButton;
     private HomeViewModel viewModel;
-    private String accessToken;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -52,7 +52,6 @@ public class HomeActivity extends AppCompatActivity {
         errorText = findViewById(R.id.errorText);
         progressBar = findViewById(R.id.progressBar);
         retryButton = findViewById(R.id.retryButton);
-        accessToken=getIntent().getStringExtra(EXTRA_ACCESS_TOKEN);
         // Tied to this Activity, so the same instance comes back after rotation.
         viewModel= new ViewModelProvider(this).get(HomeViewModel.class);
         viewModel.getState().observe(this, new Observer<HomeViewModel.HomeState>() {
@@ -70,18 +69,9 @@ public class HomeActivity extends AppCompatActivity {
         load();
     }
     private void load(){
-        viewModel.load(accessToken);
+        viewModel.load();
     }
-    // Until CW-11 exists nothing starts this activity with a token, so this is
-    // what you get launching it directly. Afterwards it means the caller is wrong.
-    private void showMissingToken() {
-        successGroup.setVisibility(View.GONE);
-        progressBar.setVisibility(View.GONE);
-        errorGroup.setVisibility(View.VISIBLE);
-        errorText.setText(R.string.home_no_token);
-        retryButton.setEnabled(false);
-    }
-
+    
     // Single place that turns a state into what is on screen. All three groups
     // are set unconditionally, so exactly one is visible however you got here
     // and no stale spinner or error survives into the next state.
@@ -92,27 +82,21 @@ public class HomeActivity extends AppCompatActivity {
         successGroup.setVisibility(
                 state.status == HomeViewModel.Status.SUCCESS ? View.VISIBLE : View.GONE);
 
-        // Both failure states share the same group — the difference is the text
-        // and whether retrying can help.
         errorGroup.setVisibility(
-                state.status == HomeViewModel.Status.ERROR
-                        || state.status == HomeViewModel.Status.NO_TOKEN
-                        ? View.VISIBLE : View.GONE);
+                state.status == HomeViewModel.Status.ERROR ? View.VISIBLE : View.GONE);
 
         if (state.status == HomeViewModel.Status.SUCCESS && state.profile != null) {
             usernameText.setText(state.profile.getUsername());
             ratingText.setText(String.valueOf(state.profile.getRating()));
         }
 
-        if (state.status == HomeViewModel.Status.NO_TOKEN) {
-            // App copy, so it comes from a string resource — there is no server
-            // message here because no request was ever sent.
-            errorText.setText(R.string.home_no_token);
-            retryButton.setEnabled(false);
-        }
-
         if (state.status == HomeViewModel.Status.ERROR && state.error != null) {
-            // The server's message verbatim — never a string resource.
+            // clearSession() ran on the OkHttp thread before this callback was posted,
+            // and apply() updates the in-memory map synchronously — so an ERROR with no
+            // session left is always the logged-out case, never a retryable failure.
+            if (!SessionManager.getInstance().hasSession()) {
+                return;
+            }
             errorText.setText(state.error.getMessage());
             retryButton.setEnabled(true);
         }

@@ -1,6 +1,4 @@
 package com.example.chesswhisper.ui.home;
-
-import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
@@ -13,7 +11,7 @@ import com.example.chesswhisper.data.user.model.MeResponse;
 // Holds the home screen's state. Being a ViewModel, it survives rotation — so an
 // in-flight request is not restarted and its result is not lost.
 public class HomeViewModel extends ViewModel {
-    public enum Status {IDLE, LOADING, SUCCESS, ERROR,    NO_TOKEN     };
+    public enum Status {IDLE, LOADING, SUCCESS, ERROR};
 
     // Immutable snapshot of the screen. One object means status, error and
     // profile can never disagree, unlike three separate LiveData fields.
@@ -38,7 +36,7 @@ public class HomeViewModel extends ViewModel {
     public LiveData<HomeState> getState() {
         return state;
     }
-    public void load(String accessToken){
+    public void load(){
         Status current= state.getValue().status;
         // The Activity calls this from onCreate, which runs again on every
         // rotation — but this ViewModel survives, so the request must not be
@@ -46,14 +44,9 @@ public class HomeViewModel extends ViewModel {
         if(current==Status.LOADING || current==Status.SUCCESS){
             return;
         }
-        // Nothing to send. Until CW-11 there is no login to produce a token,
-        // so this is the normal path rather than an edge case.
-        if (accessToken == null) {
-            state.setValue(new HomeState(Status.NO_TOKEN, null, null));
-            return;
-        }
         state.setValue(new HomeState(Status.LOADING,null,null));
-        userRepository.me(accessToken, new UserRepository.MeCallback() {
+        //async code
+        userRepository.me(new UserRepository.MeCallback() {
             @Override
             public void onSuccess(MeResponse response) {
                 state.setValue(new HomeState(Status.SUCCESS,null, response));

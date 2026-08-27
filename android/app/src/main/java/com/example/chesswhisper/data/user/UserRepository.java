@@ -21,10 +21,11 @@ public class UserRepository {
     }
 
     private final UserApi userApi=ApiClient.getUserApi();
-    public void me(String accessToken, MeCallback callback){
-        // The one place the "Bearer " prefix is written. CW-11's interceptor
-        // takes this over, and the accessToken parameter goes away with it.
-        Call<MeResponse> call= userApi.me("Bearer "+ accessToken);
+    public void me(MeCallback callback){
+        // No token handling here: ApiClient's interceptor attaches it, and its
+        // authenticator silently refreshes and retries on a 401. By the time a
+        // failure reaches onResponse below, refreshing has already been tried.
+        Call<MeResponse> call= userApi.me();
         //callback indicates what do after sending the request
         Callback<MeResponse> callback2= new Callback<MeResponse>() {
             // Reached whenever the server answered at all — including 401 and 404.
@@ -34,8 +35,8 @@ public class UserRepository {
                 if(response.isSuccessful() && response.body()!= null){
                     callback.onSuccess(response.body());
                 }else{
-                    // 401 unauthorized / access_token_expired and 404
-                    // user_not_found all land here.
+                    // 404 user_not_found, and any 401 the authenticator could
+                    // not resolve by refreshing.
                     callback.onError(ApiErrors.from(response));
                 }
             }
