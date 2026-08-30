@@ -33,7 +33,8 @@ public class GameActivity extends AppCompatActivity {
 
             @Override
             public void onPromotionNeeded(String from, String to, List<String> candidateUcis) {
-                Log.d(TAG, "promotion needed: " + from + to + " candidates=" + candidateUcis);
+                PromotionPickerDialog.show(GameActivity.this, candidateUcis,
+                        uci -> Log.d(TAG, "move selected: " + uci));
             }
         });
     }

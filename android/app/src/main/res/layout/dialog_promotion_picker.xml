@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Content view for PromotionPickerDialog: one button per promotion piece, each
+     labeled with the piece's glyph rather than a text string. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="16dp">
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnQueen"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="28sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnRook"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="28sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnBishop"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="28sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnKnight"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="28sp" />
+
+</LinearLayout>

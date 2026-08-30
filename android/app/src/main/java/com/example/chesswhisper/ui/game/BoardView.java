@@ -192,7 +192,9 @@ public class BoardView extends View {
         return "" + file + rank;
     }
 
-    private static String glyphFor(char piece) {
+    // Package-private so PromotionPickerDialog can reuse it instead of duplicating
+    // the glyph table.
+    static String glyphFor(char piece) {
         switch (piece) {
             case 'K': return "♔";
             case 'Q': return "♕";
