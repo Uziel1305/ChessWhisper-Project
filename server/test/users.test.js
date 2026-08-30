@@ -22,19 +22,19 @@ describe('GET /api/users/me', ()=>{
     })
 
     it('returns 200 and the profile for a valid token', async () => {
-    const registered = await request(app)
-      .post('/api/auth/register')
-      .send({ username: 'testuser_me', password: 'a-strong-password-123' });
-    expect(registered.status).toBe(201);
-    const res = await request(app)
-      .get('/api/users/me')
-      .set('Authorization', `Bearer ${accessTokenFor(registered.body.userId)}`);
+        const registered = await request(app)
+        .post('/api/auth/register')
+        .send({ username: 'testuser_me', password: 'a-strong-password-123' });
+        expect(registered.status).toBe(201);
+        const res = await request(app)
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${accessTokenFor(registered.body.userId)}`);
 
-    expect(res.status).toBe(200);
-    expect(res.body.username).toBe('testuser_me');
-    expect(res.body.rating).toBeDefined();
-    // The hash must never leave the server, so it must never reach the body.
-    expect(res.body.password_hash).toBeUndefined();
+        expect(res.status).toBe(200);
+        expect(res.body.username).toBe('testuser_me');
+        expect(res.body.rating).toBeDefined();
+        // The hash must never leave the server, so it must never reach the body.
+        expect(res.body.password_hash).toBeUndefined();
     })
 
     // CW-12's second acceptance test: a brand-new player starts at 1000.

@@ -58,7 +58,7 @@ describe('websocket upgrade at /ws',()=>{
     })
     afterAll(async () => {
         for(const client of openClients){
-            client.close();
+            client.terminate();
         }
         await new Promise((resolve)=> server.close(resolve));
         // Importing app constructs the pool even though nothing queries it. so we need to close it
