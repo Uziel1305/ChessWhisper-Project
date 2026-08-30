@@ -109,4 +109,47 @@ function attachHub(server) {
 }
 
 
+// ---------------------------------------------------------------------------
+// TEMPORARY — CW-36. Delete this whole block when CW-39 lands.
+//
+// A hardcoded match.found so CW-41 (Android WS client + Play button) has
+// something real to build against before matchmaking exists. Every field is
+// the shape CW-39 will actually send — only the values are fake — so the
+// client parses this and the real thing identically.
+// ---------------------------------------------------------------------------
+wss.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+        let event;
+        try {
+            event = JSON.parse(raw);
+        } catch (err) {
+            // A client sending junk is not a reason to take the server down.
+            return;
+        }
+
+        if (event.type !== 'queue.join') return;
+
+        sendToUser(ws.userId, {
+            type: 'match.found',
+            gameId: 'dev-game-0000',
+            color: 'white',
+            opponent: { username: 'Dev Opponent', rating: 1000 },
+            fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            // The 20 legal opening moves, UCI. BoardView filters this list by
+            // the tapped square — it never computes legality itself.
+            legalMoves: [
+                'a2a3', 'a2a4', 'b2b3', 'b2b4', 'c2c3', 'c2c4', 'd2d3', 'd2d4',
+                'e2e3', 'e2e4', 'f2f3', 'f2f4', 'g2g3', 'g2g4', 'h2h3', 'h2h4',
+                'b1a3', 'b1c3', 'g1f3', 'g1h3'
+            ],
+            // Echoed back, not hardcoded, so Tamir can confirm the server
+            // actually read his queue.join payload.
+            timeControlMs: event.timeControl ?? 600000,
+            // Stubbed now rather than at CW-39: the field exists from the first
+            // version, so CW-61 fills it in instead of restructuring the payload.
+            clocks: null,
+        });
+    });
+});
+
 module.exports = { attachHub, sendToUser };
