@@ -18,20 +18,20 @@ describe('POST /api/auth/register', () => {
   afterAll(async () => {
     // Every fixture username shares the testuser_ prefix so this one statement
     // cleans up without touching real rows.
-    await pool.query("DELETE FROM users WHERE username LIKE 'testuser_%'");
+    await pool.query("DELETE FROM users WHERE username LIKE 'AuthTestuser_%'");
   });
 
   it('registers a new user and returns 201 + userId', async () => {
     const res = await request(app)
       .post('/api/auth/register')
-      .send({ username: 'testuser_valid', password: 'a-strong-password-123' });
+      .send({ username: 'AuthTestuser_valid', password: 'a-strong-password-123' });
 
     expect(res.status).toBe(201);
     expect(res.body.userId).toBeDefined();
   });
 
   it('rejects a duplicate username with 409', async () => {
-    const user = { username: 'testuser_dup', password: 'a-strong-password-123' };
+    const user = { username: 'AuthTestuser_dup', password: 'a-strong-password-123' };
 
     // Registers first so the test creates its own precondition instead of
     // depending on a row left behind by an earlier run.
@@ -55,7 +55,7 @@ describe('POST /api/auth/register', () => {
   it('rejects a missing password with 400', async () => {
     const res = await request(app)
       .post('/api/auth/register')
-      .send({ username: 'testuser_nopass' });
+      .send({ username: 'AuthTestuser_nopass' });
 
     expect(res.status).toBe(400);
   });
@@ -63,7 +63,7 @@ describe('POST /api/auth/register', () => {
   it('rejects a too-short password with 400', async () => {
     const res = await request(app)
       .post('/api/auth/register')
-      .send({ username: 'testuser_shortpass', password: '123' });
+      .send({ username: 'AuthTestuser_shortpass', password: '123' });
 
     expect(res.status).toBe(400);
   });
@@ -75,19 +75,19 @@ describe('POST /api/auth/login', () => {
   beforeAll(async () => {
     await request(app)
       .post('/api/auth/register')
-      .send({ username: 'testuser_login', password });
+      .send({ username: 'AuthTestuser_login', password });
   });
 
   afterAll(async () => {
     // ON DELETE CASCADE on refresh_tokens.user_id means this also cleans up
     // any refresh tokens issued to these fixture users.
-    await pool.query("DELETE FROM users WHERE username LIKE 'testuser_%'");
+    await pool.query("DELETE FROM users WHERE username LIKE 'AuthTestuser_%'");
   });
 
   it('logs in with correct credentials and returns tokens', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'testuser_login', password });
+      .send({ username: 'AuthTestuser_login', password });
 
     expect(res.status).toBe(200);
     expect(res.body.accessToken).toBeDefined();
@@ -98,7 +98,7 @@ describe('POST /api/auth/login', () => {
   it('rejects a wrong password with 401 invalid_credentials', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'testuser_login', password: 'wrong-password' });
+      .send({ username: 'AuthTestuser_login', password: 'wrong-password' });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toBe('invalid_credentials');
@@ -107,11 +107,11 @@ describe('POST /api/auth/login', () => {
   it('rejects an unknown username with the exact same response as a wrong password', async () => {
     const wrongPassword = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'testuser_login', password: 'wrong-password' });
+      .send({ username: 'AuthTestuser_login', password: 'wrong-password' });
 
     const unknownUser = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'testuser_does_not_exist', password: 'wrong-password' });
+      .send({ username: 'AuthTestuser_does_not_exist', password: 'wrong-password' });
 
     expect(unknownUser.status).toBe(wrongPassword.status);
     expect(unknownUser.body).toEqual(wrongPassword.body);
@@ -128,7 +128,7 @@ describe('POST /api/auth/login', () => {
   it('rejects a missing password with 400', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'testuser_login' });
+      .send({ username: 'AuthTestuser_login' });
 
     expect(res.status).toBe(400);
   });
@@ -142,17 +142,17 @@ describe('POST /api/auth/refresh', () => {
   beforeAll(async () => {
     await request(app)
       .post('/api/auth/register')
-      .send({ username: 'testuser_refresh', password });
+      .send({ username: 'AuthTestuser_refresh', password });
   });
 
   afterAll(async () => {
-    await pool.query("DELETE FROM users WHERE username LIKE 'testuser_%'");
+    await pool.query("DELETE FROM users WHERE username LIKE 'AuthTestuser_%'");
   });
 
   async function login() {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'testuser_refresh', password });
+      .send({ username: 'AuthTestuser_refresh', password });
     return res.body;
   }
 
@@ -234,17 +234,17 @@ describe('POST /api/auth/logout', () => {
   beforeAll(async () => {
     await request(app)
       .post('/api/auth/register')
-      .send({ username: 'testuser_logout', password });
+      .send({ username: 'AuthTestuser_logout', password });
   });
 
   afterAll(async () => {
-    await pool.query("DELETE FROM users WHERE username LIKE 'testuser_%'");
+    await pool.query("DELETE FROM users WHERE username LIKE 'AuthTestuser_%'");
   });
 
   async function login() {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username: 'testuser_logout', password });
+      .send({ username: 'AuthTestuser_logout', password });
     return res.body.refreshToken;
   }
 

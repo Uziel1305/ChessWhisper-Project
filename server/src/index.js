@@ -1,7 +1,9 @@
 // Process entry point: the only place that binds a port. app.js stays
 // listen-free so the tests can import it without starting a real server.
 const app = require('./app');
+const http = require('http');
 const runMigrations = require('./db/migrate');
+const { attachHub } = require('./ws/hub');
 
 // Comes from compose. The same port carries REST and, later, the WebSocket hub.
 const PORT = process.env.PORT;
@@ -11,9 +13,11 @@ const PORT = process.env.PORT;
 // waited for Postgres to accept connections by this point.
 runMigrations()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server listening on port ${PORT}`);
-    });
+      const server=http.createServer(app);
+      attachHub(server);
+      server.listen(PORT,()=> {
+        console.log(`Server listening on port ${PORT}`);
+      })
   })
   .catch((err) => {
     // Fail loudly rather than serving against a broken or half-built schema.
@@ -21,3 +25,4 @@ runMigrations()
     console.error('Migrations failed, not starting server:', err);
     process.exit(1);
   });
+
