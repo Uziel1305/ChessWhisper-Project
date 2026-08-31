@@ -266,3 +266,27 @@ Express 5's default **HTML** 500, not the project's `{error, message}` envelope:
   differently from its neighbours.
 - Known cost: a `TypeError` in a handler surfaces as a bodiless 500 whose real message is
   only visible via `docker compose logs server`.
+
+### `mode` names the assist features, not a rating category (decided August 2026)
+
+Every game is rated. `mode` — carried by `queue.join`, stored in `games.mode` — says which
+AI-assist features are switched on for that game:
+
+- The vocabulary is `classic` (no assistance), `eval` (evaluation bar), `feedback`
+  (instant move classification) and `retraction` (Tactical Retraction undo window). The
+  set **grows** as assist features land; it is deliberately not closed.
+- It is half the matchmaking key `(mode, timeControl)` for a sharper reason than the time
+  control is: both players must agree. A player with an eval bar facing one without is not
+  playing a variant, they have an unfair advantage — so the queue must never pair them.
+- **No `CHECK` constraint on `games.mode`**, for the same reason `games.reason` has none:
+  a closed constraint turns every new assist feature into a schema migration.
+- The wire values are deliberately short. `games.mode` is `VARCHAR(16)` and the natural
+  long forms overflow it — `instant_feedback` is exactly 16, `tactical_retraction` is 19.
+  They also travel on every `queue.join`, so brevity costs nothing and buys headroom.
+- `queue.join` must **reject** an unrecognised mode rather than key a waiting list by it.
+  A typo would otherwise leave a player queued alone forever, with no error to explain it.
+- Android hardcodes `mode: 'classic'` from CW-41. A picker is deferred exactly as the
+  time-control picker is: cheap to build once the assist features exist, worthless before.
+- Rejected alternative: `mode` as `rated`/`casual`. Nothing in this product is unrated, so
+  the field would have carried no information, and the assist features would then have
+  needed a second field anyway.
