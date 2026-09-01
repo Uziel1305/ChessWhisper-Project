@@ -12,7 +12,8 @@ class Game extends EventEmitter {
       black: new Clock(timeControlMs, () => this._onFlag('black')),
     };
   }
-
+  // start is the game.js method and it's calling a method with the same name (start)
+  // that belong to clock.js. (it also has a method named start)
   start() {
     this.clocks.white.start();
   }
