@@ -13,3 +13,28 @@ describe('Game — time control', () => {
     expect(game.clocks.black.remainingMs()).toBe(600000);
   });
 });
+
+// Only white's clock expiring is covered here — that's this ticket's scope.
+// Black's side is a separate case, not yet covered.
+describe('Game — flag detection', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('when a clock reaches zero, the game ends with the opponent as winner, and game.end reaches both sockets', () => {
+    jest.useFakeTimers();
+    const game = new Game(1000);
+
+    const whiteSocket = jest.fn();
+    const blackSocket = jest.fn();
+    game.on('game.end', whiteSocket);
+    game.on('game.end', blackSocket);
+
+    game.start();
+    jest.advanceTimersByTime(1000);
+
+    const expected = { winner: 'black', reason: 'timeout' };
+    expect(whiteSocket).toHaveBeenCalledWith(expected);
+    expect(blackSocket).toHaveBeenCalledWith(expected);
+  });
+});
