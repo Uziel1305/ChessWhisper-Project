@@ -5,6 +5,8 @@ const WebSocket = require('ws');
 const app = require('../src/app');
 const pool = require('../src/db/pool');
 const { attachHub } = require('../src/ws/hub');
+const queue = require('../src/matchmaking/queue');
+
 
 
 function accessTokenFor(userId) {
@@ -54,6 +56,12 @@ async function registerPlayer(username) {
 
 
 describe('matchmaking queue', () => {
+    beforeEach(() => {
+        // Module state is a singleton and outlives each test. A player left
+        // waiting by one test gets matched by the next one's join — which is
+        // how QueueTestuser_solo ended up as the slow player's opponent.
+        queue.clear();
+    });
     beforeAll(async () => {
         server = http.createServer(app);
         attachHub(server);

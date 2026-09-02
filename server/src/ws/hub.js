@@ -5,29 +5,34 @@ const {WebSocketServer,WebSocket}=require('ws')
 // checks out. Handing the http.Server straight to ws would upgrade first and
 // authenticate afterwards, which is exactly backwards.
 const wss=new WebSocketServer({noServer:true})
+const queue = require('../matchmaking/queue');
+const gameManager = require('../game/GameManager');
+
+// userId -> that user's socket. One only: a game cannot be played from two
+// places at once, and a second socket creates a second board that can send
+// moves and queue joins of its own.
+const socketByUser = new Map();
 
 
-// userId -> the set of that user's live sockets. A Set rather than one socket
-// because a phone that sleeps and reconnects briefly holds two, and a game
-// event has to reach whichever one is actually alive.
-const socketsByUser = new Map();
 
-function register(userId, ws){
-    if(!socketsByUser.has(userId)){
-        socketsByUser.set(userId, new Set())
+function register(userId, ws) {
+    const existing = socketByUser.get(userId);
+    // Newest connection wins. Set first, then close: the old socket's close
+    // handler runs later and must see itself as already replaced.
+    socketByUser.set(userId, ws);
+
+    if (existing && existing !== ws) {
+        existing.close(4000, 'replaced by a newer connection');
     }
-    socketsByUser.get(userId).add(ws)
 }
 
-function unregister(userId, ws){
-    const sockets = socketsByUser.get(userId)
-    if(!sockets){
-        return
-    }
-    sockets.delete(ws);
-    // Drop the key rather than leaving an empty Set behind, or the map grows by
-    // one dead entry per user who has ever connected.
-    if (sockets.size === 0) socketsByUser.delete(userId);
+// Returns whether this socket was still the live one. A stale socket closing
+// after it has been replaced must not evict its replacement — which is also
+// why the caller uses this answer before touching the queue.
+function unregister(userId, ws) {
+    if (socketByUser.get(userId) !== ws) return false;
+    socketByUser.delete(userId);
+    return true;
 }
 
 
@@ -35,20 +40,14 @@ function unregister(userId, ws){
 
 
 
-// The hub's outbound API. Everything the game sends to a player goes through
-// here — GameManager never touches a socket directly.
+
+
 function sendToUser(userId, event) {
-    // String() because decoded.sub is a string and games.repo will hand back a
+    // String() because decoded.sub is a string and games.repo hands back a
     // numeric id. Map.get(1) does not find the key '1'.
-    const sockets = socketsByUser.get(String(userId));
-    if (!sockets) return;
-
-    const payload = JSON.stringify(event);
-    for (const ws of sockets) {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(payload);
-        }
-    }
+    const ws = socketByUser.get(String(userId));
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(event));
 }
 
 
@@ -83,42 +82,115 @@ function reject(socket) {
 
 
 function attachHub(server) {
+
+    // Listen for HTTP requests that ask to upgrade the connection
+    // from normal HTTP into a WebSocket connection.
     server.on('upgrade', (request, socket, head) => {
-        // Only /ws is a websocket endpoint; every other path stays REST. No
-        // status line here, unlike reject() — a client asking to upgrade an
-        // unknown path is a bug in the client, not an auth outcome it can act on.
+
+        // request = the HTTP upgrade request
+        // socket  = the underlying TCP connection
+        // head    = extra bytes Node may already have read
+
+        // Extract only the path from the requested URL.
+        // Example: "/ws?x=1" -> "/ws"
         const { pathname } = new URL(request.url, 'http://localhost');
+
+        // Only /ws is allowed to become a WebSocket connection.
+        // If the client tries to upgrade another path, close this TCP connection.
         if (pathname !== '/ws') {
             socket.destroy();
             return;
         }
 
+        // Read and verify the JWT from the HTTP upgrade request
+        // and get the authenticated user's ID.
         const userId = userIdFrom(request);
+
+        // If authentication failed, reject the upgrade.
+        // At this point we still do NOT have a WebSocket yet.
         if (!userId) {
             reject(socket);
             return;
         }
 
+        // Perform the actual HTTP -> WebSocket upgrade.
+        // When this callback starts, `ws` is an established WebSocket connection.
         wss.handleUpgrade(request, socket, head, (ws) => {
+
+            // Attach the authenticated user's ID to this WebSocket object.
+            // This is our own custom property.
             ws.userId = userId;
+
+            // Store this WebSocket in the hub so we know
+            // which connections belong to this user.
             register(userId, ws);
-            ws.on('close', () => unregister(userId, ws));
+
+            ws.on('close', () => {
+                // Only leave the queue if this was the live socket. A stale one
+                // dying must not pull the user's current session out of it.
+                if (unregister(userId, ws)) {
+                    queue.leave(userId);
+                }
+            });
+
+            // Tell the WebSocketServer that a new WebSocket connection
+            // has been established, so its 'connection' listeners will run.
             wss.emit('connection', ws, request);
         });
     });
 }
 
 
-// ---------------------------------------------------------------------------
-// TEMPORARY — CW-36. Delete this whole block when CW-39 lands.
-//
-// A hardcoded match.found so CW-41 (Android WS client + Play button) has
-// something real to build against before matchmaking exists. Every field is
-// the shape CW-39 will actually send — only the values are fake — so the
-// client parses this and the real thing identically.
-// ---------------------------------------------------------------------------
+
+
+async function handleQueueJoin(ws, event) {
+    let pair;
+    try {
+        pair = queue.join({
+            userId: ws.userId,
+            mode: event.mode,
+            timeControl: event.timeControl,
+        });
+    } catch (err) {
+        if (err instanceof queue.InvalidQueueRequestError) {
+            // An unrecognised mode or time control is answered, never queued.
+            // Silently accepting it would leave the player waiting alone forever
+            // in a key nobody else can ever join.
+            sendToUser(ws.userId, {
+                type: 'queue.rejected',
+                error: err.code,
+                message: err.message,
+            });
+            return;
+        }
+        throw err;
+    }
+
+    // No pair yet: this player is now waiting, which is not an event worth
+    // sending. They hear nothing until someone joins the same key.
+    if (!pair) return;
+
+    try {
+        await gameManager.createGame(pair);
+    } catch (err) {
+        // Both players have already been taken out of the waiting list, so
+        // staying quiet would strand them: no match, no error, no queue place.
+        for (const player of pair.players) {
+            sendToUser(player.userId, {
+                type: 'queue.rejected',
+                error: 'game_not_created',
+                message: 'could not start the game, please try again',
+            });
+        }
+        console.error('createGame failed:', err);
+    }
+}
+
 wss.on('connection', (ws) => {
     ws.on('message', (raw) => {
+        if (socketByUser.get(ws.userId) !== ws) {
+            return;
+        }
         let event;
         try {
             event = JSON.parse(raw);
@@ -127,28 +199,32 @@ wss.on('connection', (ws) => {
             return;
         }
 
-        if (event.type !== 'queue.join') return;
+        if (event.type === 'queue.join') {
+            // The listener can be async, but ws.on() does not await its returned Promise.
+            // Catch handleQueueJoin() explicitly so a rejection is not left unhandled.
+            handleQueueJoin(ws, event).catch((err) => {
+                // Only bugs reach here — every expected failure is answered
+                // inside handleQueueJoin. The stack goes to the log; the player
+                // gets something generic, because we do not know what broke.
+                console.error('queue.join failed:', err);
 
-        sendToUser(ws.userId, {
-            type: 'match.found',
-            gameId: 'dev-game-0000',
-            color: 'white',
-            opponent: { username: 'Dev Opponent', rating: 1000 },
-            fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-            // The 20 legal opening moves, UCI. BoardView filters this list by
-            // the tapped square — it never computes legality itself.
-            legalMoves: [
-                'a2a3', 'a2a4', 'b2b3', 'b2b4', 'c2c3', 'c2c4', 'd2d3', 'd2d4',
-                'e2e3', 'e2e4', 'f2f3', 'f2f4', 'g2g3', 'g2g4', 'h2h3', 'h2h4',
-                'b1a3', 'b1c3', 'g1f3', 'g1h3'
-            ],
-            // Echoed back, not hardcoded, so Tamir can confirm the server
-            // actually read his queue.join payload.
-            timeControlMs: event.timeControl ?? 600000,
-            // Stubbed now rather than at CW-39: the field exists from the first
-            // version, so CW-61 fills it in instead of restructuring the payload.
-            clocks: null,
-        });
+                // The player's queue state is unknown after an unexpected throw:
+                // join() may or may not have listed them. Force it to a known
+                // one, so the message below is true rather than a guess.
+                queue.leave(ws.userId);
+
+                sendToUser(ws.userId, {
+                    type: 'queue.rejected',
+                    error: 'queue_failed',
+                    message: 'could not join the queue, please try again',
+                });
+            });
+            return;
+        }
+
+        if (event.type === 'queue.leave') {
+            queue.leave(ws.userId);
+        }
     });
 });
 
