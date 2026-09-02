@@ -32,4 +32,9 @@
     <string name="login_retry">Retry</string>
 
     <string name="promotion_picker_title">Promote to</string>
+
+    <string name="game_over_title">Game Over</string>
+    <string name="game_result_win">%1$s wins by %2$s.</string>
+    <string name="game_result_draw">Draw by %1$s.</string>
+    <string name="game_result_back_home">Back to Home</string>
 </resources>

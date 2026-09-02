@@ -1,11 +1,13 @@
 package com.example.chesswhisper.ui.game;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.chesswhisper.R;
+import com.example.chesswhisper.ui.home.HomeActivity;
 
 import java.util.List;
 
@@ -37,5 +39,10 @@ public class GameActivity extends AppCompatActivity {
                         uci -> Log.d(TAG, "move selected: " + uci));
             }
         });
+    }
+
+    private void goToHome() {
+        startActivity(new Intent(this, HomeActivity.class));
+        finish();
     }
 }
