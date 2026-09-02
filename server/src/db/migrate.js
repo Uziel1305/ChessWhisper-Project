@@ -45,7 +45,7 @@ async function runMigrations() {
             console.log(`migration applied: ${filename}`);
         }catch(error){
             await client.query('ROLLBACK')
-            throw new Error('migration failed: ${filename}\n${error.message}');
+            throw new Error(`migration failed: ${filename}\n${error.message}`);
         }finally{
             client.release();
         }
