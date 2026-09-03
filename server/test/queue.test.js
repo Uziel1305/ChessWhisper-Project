@@ -108,6 +108,9 @@ describe('matchmaking queue', () => {
         expect(eventB.type).toBe('match.found');
         // One game, not two that happen to look alike.
         expect(eventA.gameId).toBe(eventB.gameId);
+        //check has legal moves
+        expect(eventA.legalMoves).toContain('e2e4');
+        expect(eventA.legalMoves).toHaveLength(20);
         // Opposite colours, and each told about the other. These two are what
         // the temporary hardcoded match.found in hub.js cannot satisfy — it
         // tells every player they are white and facing 'Dev Opponent'.
