@@ -221,7 +221,26 @@ wss.on('connection', (ws) => {
             });
             return;
         }
-
+        if (event.type === 'game.move') {
+            // applyMove answers an invalid move with null and a log line, so
+            // there is nothing to send back and nothing to branch on here. The
+            // catch is only for a genuine failure — the moves insert throwing
+            // because the database is unreachable — which would otherwise be an
+            // unhandled rejection on the socket.
+            //
+            // Known cost of staying silent there: the server's position has
+            // already advanced but neither player was told, so this is the one
+            // case where the two sides genuinely diverge. The log is the only
+            // signal, and it is worth watching for during CW-57's acceptance run.
+            gameManager.applyMove({
+                gameId: event.gameId,
+                userId: ws.userId,
+                uci: event.uci,
+            }).catch((err) => {
+                console.error('game.move failed:', err);
+            });
+            return;
+        }
         if (event.type === 'queue.leave') {
             queue.leave(ws.userId);
         }
