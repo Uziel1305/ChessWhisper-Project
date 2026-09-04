@@ -290,3 +290,30 @@ AI-assist features are switched on for that game:
 - Rejected alternative: `mode` as `rated`/`casual`. Nothing in this product is unrated, so
   the field would have carried no information, and the assist features would then have
   needed a second field anyway.
+
+### The `moves` table stores UCI only, not the resulting position (decided September 2026)
+
+`003_moves.sql` is `id, game_id, ply, uci, created_at`. There is deliberately **no
+`fen_after` column**, though CW-43's original description specified one:
+
+- Every position is derivable by replaying `uci` from the start. Storing it would be a
+  second source of truth for a fact the move list already carries, and if the two ever
+  disagreed nothing would say which was wrong.
+- The only consumer would be a game-history endpoint reading past games back. That is not
+  in CW-28, not on the critical path, and when it lands it can replay through the chess.js
+  the server already loads. The accepted cost of this decision is that doing so puts a
+  rules engine into the REST path for the first time — every other route is a thin read.
+- Rejected reasons for keeping it: **O(1) jump to an arbitrary ply** — the history UI steps
+  move by move and never random-accesses, so there is nothing to speed up; and **feeding
+  the evaluation feature** — evaluation runs live, once per committed half-move, with the
+  FEN already in hand, and never reads a stored one back.
+- `UNIQUE (game_id, ply)` is what actually protects the record: a move submitted twice, by
+  a client retry or a race, fails on the constraint rather than silently writing a
+  duplicate ply. Same principle as `users.username` — let the constraint decide.
+- If it is ever wanted: `ALTER TABLE moves ADD COLUMN fen_after TEXT`, leaving old rows
+  null. A history feature that shows nothing for games played before it existed is a fine
+  trade against a backfill script that replays every stored game.
+- **This is a storage-only change, so it crosses no seam with Android.** `match.found.fen`
+  and `move.committed.fen` are computed live by `Game.js` and are unaffected. The general
+  rule it illustrates: a storage-only change belongs to the server alone, while any change
+  to an event's *shape* has to be told to whoever is writing the client.
