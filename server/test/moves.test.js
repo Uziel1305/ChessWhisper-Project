@@ -169,5 +169,31 @@ describe('game.move', () => {
         expect(accepted.type).toBe('move.committed');
     });
 
+     // CW-52. moves.test.js otherwise only ever listens on the mover's socket,
+    // so nothing proves the opponent gets their copy — which is the whole point
+    // of the story. The broadcast already exists in applyMove, so this passes
+    // immediately rather than going red first.
+    it('delivers the move to the opponent as well as the mover', async () => {
+        const { white, black, gameId } = await matchedPair('MovesTestuser_broadcast');
+
+        // Both listeners attach before the send, or the opponent's copy can
+        // arrive before anything is listening for it.
+        const events = Promise.all([nextEvent(white), nextEvent(black)]);
+        white.send(JSON.stringify({ type: 'game.move', gameId, uci: 'e2e4' }));
+        const [moverEvent, opponentEvent] = await events;
+
+        expect(opponentEvent.type).toBe('move.committed');
+        // The same event, not two that happen to look alike — the opponent must
+        // never be rendering a position built separately from the mover's.
+        expect(opponentEvent.uci).toBe(moverEvent.uci);
+        expect(opponentEvent.fen).toBe(moverEvent.fen);
+        expect(opponentEvent.legalMoves).toEqual(moverEvent.legalMoves);
+
+        // And the list belongs to whoever is to move, not to whoever received
+        // it: after e2e4 both players get black's moves. That is what lets the
+        // client gate input on the FEN's side-to-move rather than on the list.
+        expect(opponentEvent.legalMoves).toContain('e7e5');
+    });
+
 
 })
