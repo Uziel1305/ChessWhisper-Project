@@ -241,6 +241,18 @@ wss.on('connection', (ws) => {
             });
             return;
         }
+        if (event.type === 'game.resign') {
+            // Same shape as game.move: resign() answers an invalid request with
+            // null and a log line, so there is nothing to send back. The catch is
+            // only for the games.finish write throwing.
+            gameManager.resign({
+                gameId: event.gameId,
+                userId: ws.userId,
+            }).catch((err) => {
+                console.error('game.resign failed:', err);
+            });
+            return;
+        }
         if (event.type === 'queue.leave') {
             queue.leave(ws.userId);
         }

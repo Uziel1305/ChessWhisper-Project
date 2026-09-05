@@ -43,6 +43,25 @@ function nextEvent(client, timeoutMs = 1000) {
     });
 }
 
+// Collects the next `count` events, or whatever arrived before the timeout. A
+// move that ends the game sends two — move.committed, then game.end — so a
+// single-shot listener would silently miss the second.
+function nextEvents(client, count, timeoutMs = 1000) {
+    const events = [];
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(events), timeoutMs);
+        const onMessage = (raw) => {
+            events.push(JSON.parse(raw));
+            if (events.length === count) {
+                clearTimeout(timer);
+                client.off('message', onMessage);
+                resolve(events);
+            }
+        };
+        client.on('message', onMessage);
+    });
+}
+
 async function registerPlayer(username) {
     const res = await request(app)
         .post('/api/auth/register')
@@ -81,6 +100,9 @@ function move(client, gameId, uci) {
     client.send(JSON.stringify({ type: 'game.move', gameId, uci }));
     return event;
 }
+
+
+
 
 describe('game.move', () => {
     
@@ -169,5 +191,70 @@ describe('game.move', () => {
         expect(accepted.type).toBe('move.committed');
     });
 
+     // CW-52. moves.test.js otherwise only ever listens on the mover's socket,
+    // so nothing proves the opponent gets their copy — which is the whole point
+    // of the story. The broadcast already exists in applyMove, so this passes
+    // immediately rather than going red first.
+    it('delivers the move to the opponent as well as the mover', async () => {
+        const { white, black, gameId } = await matchedPair('MovesTestuser_broadcast');
+
+        // Both listeners attach before the send, or the opponent's copy can
+        // arrive before anything is listening for it.
+        const events = Promise.all([nextEvent(white), nextEvent(black)]);
+        white.send(JSON.stringify({ type: 'game.move', gameId, uci: 'e2e4' }));
+        const [moverEvent, opponentEvent] = await events;
+
+        expect(opponentEvent.type).toBe('move.committed');
+        // The same event, not two that happen to look alike — the opponent must
+        // never be rendering a position built separately from the mover's.
+        expect(opponentEvent.uci).toBe(moverEvent.uci);
+        expect(opponentEvent.fen).toBe(moverEvent.fen);
+        expect(opponentEvent.legalMoves).toEqual(moverEvent.legalMoves);
+
+        // And the list belongs to whoever is to move, not to whoever received
+        // it: after e2e4 both players get black's moves. That is what lets the
+        // client gate input on the FEN's side-to-move rather than on the list.
+        expect(opponentEvent.legalMoves).toContain('e7e5');
+    });
+
+    it('ends the game when a move delivers checkmate', async () => {
+        const { white, black, gameId } = await matchedPair('MovesTestuser_mate');
+
+        // Fool's mate — the shortest checkmate in chess, four half-moves. Short
+        // enough to play through the socket, so this exercises the real path
+        // rather than a position constructed behind GameManager's back.
+        await move(white, gameId, 'f2f3');
+        await move(black, gameId, 'e7e5');
+        await move(white, gameId, 'g2g4');
+
+        // Black delivers the mate, so white is the one to watch: they receive
+        // the move and then the ending, in that order.
+        const events = nextEvents(white, 2);
+        await move(black, gameId, 'd8h4');
+        const [committed, ended] = await events;
+
+        expect(committed.type).toBe('move.committed');
+        expect(ended.type).toBe('game.end');
+        // Black mated, so black wins. PGN notation, matching games.result's CHECK.
+        expect(ended.result).toBe('0-1');
+        expect(ended.reason).toBe('checkmate');
+    });
+
+    it('ends the game when a player resigns', async () => {
+        const { white, black, gameId } = await matchedPair('MovesTestuser_resign');
+
+        // No move.committed here — resignation is not a move, so the opponent
+        // receives game.end on its own.
+        const ended = nextEvent(black);
+        white.send(JSON.stringify({ type: 'game.resign', gameId }));
+
+        const event = await ended;
+        expect(event.type).toBe('game.end');
+        // The resigner loses, so white resigning is a win for black.
+        expect(event.result).toBe('0-1');
+        expect(event.reason).toBe('resign');
+    });
+
+    
 
 })

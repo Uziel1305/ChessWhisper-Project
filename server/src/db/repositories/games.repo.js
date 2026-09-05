@@ -35,17 +35,33 @@ async function insert({ id, whiteUserId, blackUserId, mode, timeControlMs }) {
     }
 }
 
-    async function findById(id) {
-        // $1 is a bound parameter, not string interpolation — the value can never
-        // be parsed as SQL, so this is injection-safe by construction.
-        const result = await pool.query(
-            `SELECT id, white_user_id, black_user_id, mode, time_control_ms,
-                    result, reason, started_at, ended_at
-            FROM games WHERE id=$1`,
-            [id]
-        );
-        // undefined when there is no match, which reads naturally at the call site.
-        return result.rows[0];
-    }
+async function findById(id) {
+    // $1 is a bound parameter, not string interpolation — the value can never
+    // be parsed as SQL, so this is injection-safe by construction.
+    const result = await pool.query(
+        `SELECT id, white_user_id, black_user_id, mode, time_control_ms,
+                result, reason, started_at, ended_at
+        FROM games WHERE id=$1`,
+        [id]
+    );
+    // undefined when there is no match, which reads naturally at the call site.
+    return result.rows[0];
+}
 
-    module.exports = { insert, findById, UnknownPlayerError };
+// Writes the result of a finished game. The WHERE clause is doing real work:
+// `result IS NULL` means only a game still in progress can be ended, so a second
+// call — a resignation racing a checkmate, a timeout arriving after a mate —
+// updates nothing rather than overwriting the real outcome with a later one.
+// An undefined return is how the caller learns the game was already over.
+async function finish({ id, result, reason }) {
+    const updated = await pool.query(
+        `UPDATE games
+            SET result = $2, reason = $3, ended_at = now()
+          WHERE id = $1 AND result IS NULL
+      RETURNING id, result, reason, ended_at`,
+        [id, result, reason]
+    );
+    return updated.rows[0];
+}
+
+module.exports = { insert, findById, UnknownPlayerError, finish };
