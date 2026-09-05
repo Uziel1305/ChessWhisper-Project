@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const gamesRepo = require('../db/repositories/games.repo');
 const usersRepo = require('../db/repositories/users.repo');
+const Game = require('./Game');
 
 
 
@@ -19,7 +20,7 @@ const STARTING_LEGAL_MOVES = [
 ];
 
 
-function matchFound({ gameId, color, opponent, timeControlMs }) {
+function matchFound({ gameId, color, opponent, timeControlMs, clocks }) {
     return {
         type: 'match.found',
         gameId,
@@ -28,10 +29,7 @@ function matchFound({ gameId, color, opponent, timeControlMs }) {
         fen: STARTING_FEN,
         legalMoves: STARTING_LEGAL_MOVES,
         timeControlMs,
-        // Null until CW-61 wires clock.js in. The field is here from the first
-        // version so that filling it never restructures the payload — the
-        // Android client has been parsing it since the CW-36 stub.
-        clocks: null,
+        clocks,
     };
 }
 
@@ -71,22 +69,42 @@ async function createGame({ mode, timeControl, players }) {
         usersRepo.findById(blackUserId),
     ]);
 
-    const game = { id, mode, timeControlMs: timeControl, whiteUserId, blackUserId };
+    // Owns turn tracking and the flag deadline for this game. Started immediately —
+    // white is to move as soon as the game exists. Nothing listens to its game.end
+    // event yet; that's a real, correct clock already ticking with an unconsumed
+    // event, not dead code — a future ticket (broadcasting a timeout, the same way
+    // CW-54 broadcasts a move) wires clockGame.on('game.end', ...) to end the game
+    // for real.
+    const clockGame = new Game(timeControl);
+    clockGame.start();
+
+    const game = { id, mode, timeControlMs: timeControl, whiteUserId, blackUserId, clockGame };
     games.set(id, game);
+
+    const clocks = {
+        white: clockGame.clocks.white.remainingMs(),
+        black: clockGame.clocks.black.remainingMs(),
+    };
 
     hub.sendToUser(whiteUserId, matchFound({
         gameId: id,
         color: 'white',
         opponent: blackUser,
         timeControlMs: timeControl,
+        clocks,
     }));
     hub.sendToUser(blackUserId, matchFound({
         gameId: id,
         color: 'black',
         opponent: whiteUser,
         timeControlMs: timeControl,
+        clocks,
     }));
 
+    // TODO(move.committed): once that event path exists, include
+    // { white: game.clockGame.clocks.white.remainingMs(),
+    //   black: game.clockGame.clocks.black.remainingMs() }
+    // as its clocks field, the same shape used above.
     return game;
 }
 

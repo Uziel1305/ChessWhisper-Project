@@ -114,6 +114,10 @@ describe('matchmaking queue', () => {
         expect([eventA.color, eventB.color].sort()).toEqual(['black', 'white']);
         expect([eventA.opponent.username, eventB.opponent.username].sort())
             .toEqual(['QueueTestuser_a', 'QueueTestuser_b']);
+        // Both sides' clocks start at the full time control (CW-61) — no longer
+        // the hardcoded null from the CW-36 stub.
+        expect(eventA.clocks).toEqual({ white: 600000, black: 600000 });
+        expect(eventB.clocks).toEqual({ white: 600000, black: 600000 });
     });
 
     it('leaves a lone player waiting', async () => {
