@@ -19,9 +19,4 @@ public class MatchFound implements Serializable {
         public String username;
         public int rating;
     }
-
-    public static class Clocks implements Serializable {
-        public long white;
-        public long black;
-    }
 }

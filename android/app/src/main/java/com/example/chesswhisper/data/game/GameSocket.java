@@ -1,7 +1,9 @@
 package com.example.chesswhisper.data.game;
 
 import com.example.chesswhisper.BuildConfig;
+import com.example.chesswhisper.data.game.model.GameEnd;
 import com.example.chesswhisper.data.game.model.MatchFound;
+import com.example.chesswhisper.data.game.model.MoveCommitted;
 import com.example.chesswhisper.data.network.ApiClient;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -18,16 +20,26 @@ import okhttp3.WebSocketListener;
 // than being torn down and reopened.
 public final class GameSocket {
 
-    public interface Listener {
+    // Matchmaking-phase events (Home) and in-game events (GameActivity) are split
+    // into two listener interfaces rather than one, so neither screen has to
+    // implement methods for events it doesn't care about.
+    public interface MatchListener {
         void onMatchFound(MatchFound matchFound);
         void onQueueRejected(String error, String message);
+        void onFailure(Throwable t);
+    }
+
+    public interface GameListener {
+        void onMoveCommitted(MoveCommitted event);
+        void onGameEnd(GameEnd event);
         void onFailure(Throwable t);
     }
 
     private static volatile GameSocket instance;
 
     private WebSocket webSocket;
-    private Listener listener;
+    private MatchListener matchListener;
+    private GameListener gameListener;
 
     private GameSocket() {
     }
@@ -43,8 +55,8 @@ public final class GameSocket {
         return instance;
     }
 
-    public void connectAndJoinQueue(Listener listener) {
-        this.listener = listener;
+    public void connectAndJoinQueue(MatchListener listener) {
+        this.matchListener = listener;
 
         // BASE_URL is "http://host:port/" — same host, ws:// scheme, /ws path.
         String wsUrl = BuildConfig.BASE_URL.replaceFirst("^http", "ws") + "ws";
@@ -71,18 +83,59 @@ public final class GameSocket {
                     return;
                 }
                 String type = json.has("type") ? json.get("type").getAsString() : null;
-                if ("match.found".equals(type)) {
-                    listener.onMatchFound(new Gson().fromJson(json, MatchFound.class));
-                } else if ("queue.rejected".equals(type)) {
-                    listener.onQueueRejected(
-                            json.get("error").getAsString(), json.get("message").getAsString());
+                if (type == null) {
+                    return;
+                }
+                switch (type) {
+                    case "match.found":
+                        if (matchListener != null) {
+                            matchListener.onMatchFound(new Gson().fromJson(json, MatchFound.class));
+                        }
+                        break;
+                    case "queue.rejected":
+                        if (matchListener != null) {
+                            matchListener.onQueueRejected(
+                                    json.get("error").getAsString(), json.get("message").getAsString());
+                        }
+                        break;
+                    case "move.committed":
+                        if (gameListener != null) {
+                            gameListener.onMoveCommitted(new Gson().fromJson(json, MoveCommitted.class));
+                        }
+                        break;
+                    case "game.end":
+                        if (gameListener != null) {
+                            gameListener.onGameEnd(new Gson().fromJson(json, GameEnd.class));
+                        }
+                        break;
+                    default:
+                        break;
                 }
             }
 
             @Override
             public void onFailure(WebSocket ws, Throwable t, Response response) {
-                listener.onFailure(t);
+                if (matchListener != null) {
+                    matchListener.onFailure(t);
+                }
+                if (gameListener != null) {
+                    gameListener.onFailure(t);
+                }
             }
         });
+    }
+
+    // Set once GameActivity takes over from Home. The same connection keeps
+    // running — nothing here reconnects.
+    public void setGameListener(GameListener listener) {
+        this.gameListener = listener;
+    }
+
+    public void sendMove(String gameId, String uci) {
+        JsonObject move = new JsonObject();
+        move.addProperty("type", "game.move");
+        move.addProperty("gameId", gameId);
+        move.addProperty("uci", uci);
+        webSocket.send(move.toString());
     }
 }

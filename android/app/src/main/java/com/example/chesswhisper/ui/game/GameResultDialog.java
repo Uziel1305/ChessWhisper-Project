@@ -9,20 +9,25 @@ import androidx.appcompat.app.AlertDialog;
 
 import com.example.chesswhisper.R;
 
-// Shown when a game ends. Mirrors Game.js's game.end payload shape ({winner, reason})
-// directly rather than translating to "you win/you lose" — there's no concept of
-// "which color am I" in the app yet (that arrives with match.found, CW-39/CW-41).
+// Shown when a game ends. Mirrors GameManager.js's real game.end payload shape —
+// result is PGN notation ('1-0'/'0-1'/'1/2-1/2'), not a winner/color field — and
+// still doesn't translate to "you win/you lose": there's no "which color am I"
+// concept wired into this dialog, so it shows the raw outcome.
 final class GameResultDialog {
 
     private GameResultDialog() {
     }
 
-    static void show(Context context, String winner, String reason, Runnable onBackToHome) {
+    static void show(Context context, String result, String reason, Runnable onBackToHome) {
         View view = LayoutInflater.from(context).inflate(R.layout.dialog_game_result, null);
 
-        String message = winner == null
-                ? context.getString(R.string.game_result_draw, reason)
-                : context.getString(R.string.game_result_win, capitalize(winner), reason);
+        String message;
+        if ("1/2-1/2".equals(result)) {
+            message = context.getString(R.string.game_result_draw, reason);
+        } else {
+            String winner = "1-0".equals(result) ? "White" : "Black";
+            message = context.getString(R.string.game_result_win, winner, reason);
+        }
         ((TextView) view.findViewById(R.id.resultMessage)).setText(message);
 
         AlertDialog dialog = new AlertDialog.Builder(context)
@@ -37,9 +42,5 @@ final class GameResultDialog {
         });
 
         dialog.show();
-    }
-
-    private static String capitalize(String word) {
-        return Character.toUpperCase(word.charAt(0)) + word.substring(1);
     }
 }

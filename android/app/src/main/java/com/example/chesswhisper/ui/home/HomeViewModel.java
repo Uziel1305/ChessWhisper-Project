@@ -86,7 +86,7 @@ public class HomeViewModel extends ViewModel {
 
     public void play() {
         matchmaking.setValue(new MatchmakingState(MatchmakingStatus.CONNECTING, null, null));
-        GameSocket.getInstance().connectAndJoinQueue(new GameSocket.Listener() {
+        GameSocket.getInstance().connectAndJoinQueue(new GameSocket.MatchListener() {
             @Override
             public void onMatchFound(MatchFound matchFound) {
                 // postValue: this listener runs on OkHttp's thread, not the main thread.

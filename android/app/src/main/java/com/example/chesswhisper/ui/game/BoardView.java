@@ -39,6 +39,10 @@ public class BoardView extends View {
     private String selectedSquare;
     private Set<String> highlightedTargets = new LinkedHashSet<>();
     private OnMoveListener listener;
+    // True by default so the CW-49/50 manual-check path (no live game) is unaffected.
+    // GameActivity (CW-56) turns this off the instant a move is sent and while it
+    // isn't this player's turn.
+    private boolean inputEnabled = true;
 
     private final Paint lightSquarePaint = new Paint();
     private final Paint darkSquarePaint = new Paint();
@@ -70,6 +74,10 @@ public class BoardView extends View {
 
     public void setOnMoveListener(OnMoveListener listener) {
         this.listener = listener;
+    }
+
+    public void setInputEnabled(boolean inputEnabled) {
+        this.inputEnabled = inputEnabled;
     }
 
     // Replaces the position wholesale — used both for the initial hardcoded position
@@ -130,6 +138,9 @@ public class BoardView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (!inputEnabled) {
+            return true;
+        }
         if (event.getAction() == MotionEvent.ACTION_UP) {
             float squareSize = getWidth() / 8f;
             int col = (int) (event.getX() / squareSize);
