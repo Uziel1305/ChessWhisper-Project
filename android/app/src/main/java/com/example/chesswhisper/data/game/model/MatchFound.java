@@ -5,7 +5,7 @@ import java.util.List;
 
 // Mirrors the server's match.found payload field-for-field (GameManager.js's
 // matchFound()). Passed whole to GameActivity, even though it only uses fen/
-// legalMoves today — gameId/color/opponent are what CW-56/CW-65 will need next.
+// legalMoves/clocks today — gameId/opponent are what CW-56 will need next.
 public class MatchFound implements Serializable {
     public String gameId;
     public String color;
@@ -13,10 +13,15 @@ public class MatchFound implements Serializable {
     public String fen;
     public List<String> legalMoves;
     public long timeControlMs;
-    // clocks intentionally left unmapped — null until CW-61.
+    public Clocks clocks;
 
     public static class Opponent implements Serializable {
         public String username;
         public int rating;
+    }
+
+    public static class Clocks implements Serializable {
+        public long white;
+        public long black;
     }
 }
