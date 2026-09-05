@@ -1,5 +1,6 @@
 package com.example.chesswhisper.ui.home;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.ProgressBar;
@@ -15,6 +16,7 @@ import androidx.lifecycle.ViewModelProvider;
 import com.example.chesswhisper.R;
 import com.example.chesswhisper.data.auth.SessionManager;
 import com.example.chesswhisper.ui.SessionAwareActivity;
+import com.example.chesswhisper.ui.game.GameActivity;
 import com.google.android.material.button.MaterialButton;
 
 // The home screen. It only renders state — the username and rating come straight
@@ -29,7 +31,12 @@ public class HomeActivity extends SessionAwareActivity {
     private TextView errorText;
     private ProgressBar progressBar;
     private MaterialButton retryButton;
+    private MaterialButton playButton;
     private HomeViewModel viewModel;
+    // render() and renderMatchmaking() fire from separate LiveData observers, so
+    // playButton's enabled state (profile loaded AND not already connecting) needs
+    // the latest value from both, not just whichever fired last.
+    private boolean profileLoaded = false;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -52,6 +59,7 @@ public class HomeActivity extends SessionAwareActivity {
         errorText = findViewById(R.id.errorText);
         progressBar = findViewById(R.id.progressBar);
         retryButton = findViewById(R.id.retryButton);
+        playButton = findViewById(R.id.playButton);
         // Tied to this Activity, so the same instance comes back after rotation.
         viewModel= new ViewModelProvider(this).get(HomeViewModel.class);
         viewModel.getState().observe(this, new Observer<HomeViewModel.HomeState>() {
@@ -60,12 +68,14 @@ public class HomeActivity extends SessionAwareActivity {
                 render(homeState);
             }
         });
+        viewModel.getMatchmakingState().observe(this, this::renderMatchmaking);
         retryButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 load();
             }
         });
+        playButton.setOnClickListener(v -> viewModel.play());
         load();
     }
     private void load(){
@@ -100,7 +110,29 @@ public class HomeActivity extends SessionAwareActivity {
             errorText.setText(state.error.getMessage());
             retryButton.setEnabled(true);
         }
+
+        profileLoaded = state.status == HomeViewModel.Status.SUCCESS;
+        updatePlayButtonEnabled(viewModel.getMatchmakingState().getValue());
     }
 
+    // Reacts to matchmaking state changes: navigates to GameActivity once matched,
+    // and keeps playButton in sync with whether a connection attempt is in flight.
+    private void renderMatchmaking(HomeViewModel.MatchmakingState state) {
+        updatePlayButtonEnabled(state);
+
+        if (state.status == HomeViewModel.MatchmakingStatus.MATCHED) {
+            Intent intent = new Intent(this, GameActivity.class);
+            intent.putExtra(GameActivity.EXTRA_MATCH_FOUND, state.matchFound);
+            startActivity(intent);
+        }
+        // ERROR is deliberately silent beyond re-enabling the button — no retry UI
+        // was asked for; the player can just tap Play again.
+    }
+
+    private void updatePlayButtonEnabled(HomeViewModel.MatchmakingState matchmakingState) {
+        boolean connecting = matchmakingState != null
+                && matchmakingState.status == HomeViewModel.MatchmakingStatus.CONNECTING;
+        playButton.setEnabled(profileLoaded && !connecting);
+    }
 
 }

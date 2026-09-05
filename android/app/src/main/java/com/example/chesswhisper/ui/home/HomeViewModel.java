@@ -3,6 +3,8 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 
+import com.example.chesswhisper.data.game.GameSocket;
+import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.network.ApiError;
 import com.example.chesswhisper.data.user.UserRepository;
 import com.example.chesswhisper.data.user.model.MeResponse;
@@ -54,6 +56,52 @@ public class HomeViewModel extends ViewModel {
             @Override
             public void onError(ApiError error) {
                 state.setValue(new HomeState(Status.ERROR,error,null));
+            }
+        });
+    }
+
+    // Independent of HomeState above: the profile can be loaded while matchmaking
+    // is idle, mid-connect, matched or errored — one enum would conflate two
+    // concerns that can legitimately disagree.
+    public enum MatchmakingStatus {IDLE, CONNECTING, MATCHED, ERROR}
+
+    public static final class MatchmakingState {
+        public final MatchmakingStatus status;
+        public final MatchFound matchFound;
+        public final String errorMessage;
+
+        MatchmakingState(MatchmakingStatus status, MatchFound matchFound, String errorMessage) {
+            this.status = status;
+            this.matchFound = matchFound;
+            this.errorMessage = errorMessage;
+        }
+    }
+
+    private final MutableLiveData<MatchmakingState> matchmaking =
+            new MutableLiveData<>(new MatchmakingState(MatchmakingStatus.IDLE, null, null));
+
+    public LiveData<MatchmakingState> getMatchmakingState() {
+        return matchmaking;
+    }
+
+    public void play() {
+        matchmaking.setValue(new MatchmakingState(MatchmakingStatus.CONNECTING, null, null));
+        GameSocket.getInstance().connectAndJoinQueue(new GameSocket.Listener() {
+            @Override
+            public void onMatchFound(MatchFound matchFound) {
+                // postValue: this listener runs on OkHttp's thread, not the main thread.
+                matchmaking.postValue(new MatchmakingState(MatchmakingStatus.MATCHED, matchFound, null));
+            }
+
+            @Override
+            public void onQueueRejected(String error, String message) {
+                matchmaking.postValue(new MatchmakingState(MatchmakingStatus.ERROR, null, message));
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                matchmaking.postValue(new MatchmakingState(
+                        MatchmakingStatus.ERROR, null, "Couldn't reach the server."));
             }
         });
     }

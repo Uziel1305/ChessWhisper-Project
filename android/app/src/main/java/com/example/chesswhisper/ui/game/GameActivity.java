@@ -7,15 +7,17 @@ import android.util.Log;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.chesswhisper.R;
+import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.ui.home.HomeActivity;
 
 import java.util.List;
 
-// Bare host for BoardView. Not reachable from Home yet — Home's playButton and the
-// real navigation into this screen are CW-41. Until then this exists so BoardView
-// (hardcoded starting position) can be checked manually:
-// adb shell am start -n com.example.chesswhisper/.ui.game.GameActivity
+// Hosts BoardView. Reached from Home's playButton on match.found (CW-41) — but also
+// still launchable directly (adb) with no MatchFound extra for a bare manual check,
+// in which case BoardView keeps its own hardcoded starting position.
 public class GameActivity extends AppCompatActivity {
+
+    public static final String EXTRA_MATCH_FOUND = "match_found";
 
     private static final String TAG = "GameActivity";
 
@@ -25,6 +27,12 @@ public class GameActivity extends AppCompatActivity {
         setContentView(R.layout.activity_game);
 
         BoardView boardView = findViewById(R.id.boardView);
+
+        MatchFound matchFound = (MatchFound) getIntent().getSerializableExtra(EXTRA_MATCH_FOUND);
+        if (matchFound != null) {
+            boardView.setPosition(matchFound.fen, matchFound.legalMoves);
+        }
+
         boardView.setOnMoveListener(new BoardView.OnMoveListener() {
             @Override
             public void onMoveSelected(String uci) {
