@@ -54,5 +54,37 @@ class Game {
             return null;
         }
     }
+
+    // The position's verdict as {result, reason}, or null if the game is still
+    // running. Resignation and timeout are not positions, so they are not here —
+    // GameManager builds those itself.
+    //
+    // Order matters twice over. Checkmate before stalemate, because both look
+    // like "no legal moves" and only the check distinguishes them. And each
+    // specific draw before the general one, because isDraw() is true for all of
+    // them and would swallow the reason.
+    outcome() {
+        if (this.chess.isCheckmate()) {
+            // The side to move is the side that has been mated.
+            return {
+                result: this.chess.turn() === 'w' ? '0-1' : '1-0',
+                reason: 'checkmate',
+            };
+        }
+        if (this.chess.isStalemate()) {
+            return { result: '1/2-1/2', reason: 'stalemate' };
+        }
+        if (this.chess.isThreefoldRepetition()) {
+            return { result: '1/2-1/2', reason: 'threefold' };
+        }
+        if (this.chess.isInsufficientMaterial()) {
+            return { result: '1/2-1/2', reason: 'insufficient_material' };
+        }
+        if (this.chess.isDrawByFiftyMoves()) {
+            return { result: '1/2-1/2', reason: 'fifty_move' };
+        }
+        return null;
+    }
+
 }
 module.exports = Game;

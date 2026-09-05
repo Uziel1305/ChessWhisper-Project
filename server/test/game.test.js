@@ -20,9 +20,6 @@ describe('Game', () => {
         expect(promotions.sort()).toEqual(['e7e8b', 'e7e8n', 'e7e8q', 'e7e8r']);
     });
 
-    // CW-67's third case. Unlike checkmate, the shortest stalemate from the
-    // opening is about nineteen half-moves, so this is constructed rather than
-    // played — the same reason the promotion test above uses a FEN.
     it('detects stalemate as distinct from checkmate', () => {
         // Black king on h8, white queen f7, white king g6, black to move.
         // Every square the king could go to is covered, and h8 itself is not
@@ -30,19 +27,19 @@ describe('Game', () => {
         const game = new Game('7k/5Q2/6K1/8/8/8/8/8 b - - 0 1');
 
         expect(game.legalMoves()).toHaveLength(0);
-        expect(game.isStalemate()).toBe(true);
-        // The distinction that decides the result: a stalemate is a draw, a
-        // checkmate is a loss for the side to move. Both look like "no legal
-        // moves" from the outside.
-        expect(game.isCheckmate()).toBe(false);
+        // A draw, not a loss — which is the entire distinction between this and
+        // checkmate, and both look identical from "no legal moves".
+        expect(game.outcome()).toEqual({ result: '1/2-1/2', reason: 'stalemate' });
     });
 
     it('detects a draw by insufficient material', () => {
         // Bare kings — neither side can ever mate.
         const game = new Game('8/8/8/4k3/8/8/4K3/8 w - - 0 1');
 
-        expect(game.isDraw()).toBe(true);
-        expect(game.isStalemate()).toBe(false);
+        expect(game.outcome()).toEqual({
+            result: '1/2-1/2',
+            reason: 'insufficient_material',
+        });
     });
 
     it('detects a draw by the fifty-move rule', () => {
@@ -50,9 +47,9 @@ describe('Game', () => {
         // constructed one move short of the rule rather than played there.
         const game = new Game('7k/8/8/8/8/8/8/R6K w - - 99 100');
 
-        expect(game.isDraw()).toBe(false);
+        expect(game.outcome()).toBeNull();
         game.move('a1a8');
-        expect(game.isDraw()).toBe(true);
+        expect(game.outcome()).toEqual({ result: '1/2-1/2', reason: 'fifty_move' });
     });
 
     it('detects a draw by threefold repetition', () => {
@@ -65,7 +62,7 @@ describe('Game', () => {
             expect(game.move(uci)).not.toBeNull();
         }
 
-        expect(game.isThreefoldRepetition()).toBe(true);
+        expect(game.outcome()).toEqual({ result: '1/2-1/2', reason: 'threefold' });
     });
 
 

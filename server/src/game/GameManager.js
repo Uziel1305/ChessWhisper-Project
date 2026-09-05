@@ -155,7 +155,71 @@ async function applyMove({ gameId, userId, uci }) {
     hub.sendToUser(game.whiteUserId, event);
     hub.sendToUser(game.blackUserId, event);
 
+    // After move.committed, never before: the clients need the final position
+    // rendered before they are told the game is over, and the test asserts that
+    // order — move.committed then game.end, on the same socket.
+    const outcome = game.position.outcome();
+    if (outcome) {
+        await endGame(game, outcome);
+    }
+
     return event;
+}
+
+
+// The single exit for every ending — checkmate, draw, resignation, and the
+// timeout Tamir's CW-63 will call this with. Takes the verdict rather than
+// working it out, because only two of the four come from the position.
+async function endGame(game, { result, reason }) {
+    const hub = require('../ws/hub');
+
+    // Removed synchronously, before either await below. A move arriving during
+    // them finds no game and is dropped by applyMove's existing guard — which is
+    // why Game.move needs no is-it-over check, and why this covers resignation
+    // and timeout as well as the position-based endings.
+    remove(game.id);
+
+    // Broadcast before persisting, which is the opposite of applyMove — and the
+    // difference is deliberate. A move that reaches both boards without reaching
+    // the table leaves the game continuing from a state the record does not
+    // have, and the divergence compounds. An ending continues into nothing. If
+    // the write fails, the worst case is a games row left with a null result,
+    // while the alternative is two players stranded on a dead board with no idea
+    // why their moves stopped working.
+    const event = { type: 'game.end', result, reason };
+    hub.sendToUser(game.whiteUserId, event);
+    hub.sendToUser(game.blackUserId, event);
+
+    await gamesRepo.finish({ id: game.id, result, reason });
+
+    return event;
+}
+
+
+// Resignation is not a move and not a property of the position, so it never
+// touches Game — the resigner loses, whatever the board looks like.
+async function resign({ gameId, userId }) {
+    const game = games.get(gameId);
+    if (!game) {
+        console.error('game.resign for an unknown game:', gameId);
+        return null;
+    }
+
+    const resigner = String(userId);
+    const isWhite = resigner === String(game.whiteUserId);
+    const isBlack = resigner === String(game.blackUserId);
+    // Without this a stranger could end someone else's game, which is a worse
+    // hole than the move equivalent: they cannot play your pieces, but they
+    // could make you lose.
+    if (!isWhite && !isBlack) {
+        console.error('game.resign from a non-participant:', resigner, gameId);
+        return null;
+    }
+
+    return endGame(game, {
+        result: isWhite ? '0-1' : '1-0',
+        reason: 'resign',
+    });
 }
 
 function get(gameId) {
@@ -172,4 +236,4 @@ function activeCount() {
     return games.size;
 }
 
-module.exports = { createGame, applyMove, get, remove, activeCount };
+module.exports = { createGame, applyMove, resign, endGame, get, remove, activeCount };
