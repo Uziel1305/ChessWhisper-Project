@@ -21,6 +21,8 @@ class Clock {
     this.running = true;
     this.turnStartedAt = Date.now();
     this.timeoutHandle = setTimeout(() => this._expire(), this.remaining);
+    this.timeoutHandle.unref();
+
   }
 
   pause() {

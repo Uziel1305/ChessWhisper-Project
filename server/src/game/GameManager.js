@@ -212,16 +212,18 @@ async function applyMove({ gameId, userId, uci }) {
 async function endGame(game, { result, reason }) {
     const hub = require('../ws/hub');
 
-    // Removed synchronously, before either await below. A move arriving during
-    // them finds no game and is dropped by applyMove's existing guard — which is
-    // why Game.move needs no is-it-over check, and why this covers resignation
-    // and timeout as well as the position-based endings.
-    remove(game.id);
+
     // Stops both clocks' pending flag timers immediately — otherwise a clock from
     // a game that just ended by checkmate/resign would still fire its setTimeout
     // later into onFlag's no-op guard (harmless, but needless).
     game.clocks.white.pause();
     game.clocks.black.pause();
+    // Removed synchronously, before either await below. A move arriving during
+    // them finds no game and is dropped by applyMove's existing guard — which is
+    // why Game.move needs no is-it-over check, and why this covers resignation
+    // and timeout as well as the position-based endings.
+    remove(game.id);
+    
 
     // Broadcast before persisting, which is the opposite of applyMove — and the
     // difference is deliberate. A move that reaches both boards without reaching
