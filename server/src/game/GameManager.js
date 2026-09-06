@@ -3,6 +3,7 @@ const gamesRepo = require('../db/repositories/games.repo');
 const movesRepo = require('../db/repositories/moves.repo');
 const usersRepo = require('../db/repositories/users.repo');
 const Game = require('./Game');
+const Clock = require('./clock');
 
 
 
@@ -33,11 +34,23 @@ function matchFound(game, color, opponent) {
         fen: game.position.fen(),
         legalMoves: game.position.legalMoves(),
         timeControlMs: game.timeControlMs,
-        // Null until CW-61 wires clock.js in. The field is here from the first
-        // version so that filling it never restructures the payload — the
-        // Android client has been parsing it since the CW-36 stub.
-        clocks: null,
+        clocks: {
+            white: game.clocks.white.remainingMs(),
+            black: game.clocks.black.remainingMs(),
+        },
     };
+}
+
+// A clock's onExpire fires long after creation, so it looks the game up fresh
+// rather than closing over it — the game may already have ended some other way
+// (checkmate, resignation) by the time this fires, which is not a bug.
+function onFlag(gameId, expiredColor) {
+    const game = games.get(gameId);
+    if (!game) return;
+    endGame(game, {
+        result: expiredColor === 'white' ? '0-1' : '1-0',
+        reason: 'timeout',
+    });
 }
 
 
@@ -77,6 +90,14 @@ async function createGame({ mode, timeControl, players }) {
         usersRepo.findById(blackUserId),
     ]);
 
+    // Two raw Clock instances, not wrapped in a Game-like class — GameManager
+    // already owns turn tracking (via position.turn()) and the game's lifecycle,
+    // so a clock pair is all that's needed here.
+    const clocks = {
+        white: new Clock(timeControl, () => onFlag(id, 'white')),
+        black: new Clock(timeControl, () => onFlag(id, 'black')),
+    };
+
     const game = {
         id,
         mode,
@@ -90,8 +111,11 @@ async function createGame({ mode, timeControl, players }) {
         // GameManager owns the game's lifecycle and is the only thing that
         // advances it — it moves in lockstep with position, below.
         ply: 0,
+        clocks,
     };
     games.set(id, game);
+    // White is to move as soon as the game exists.
+    game.clocks.white.start();
 
     hub.sendToUser(whiteUserId, matchFound(game, 'white', blackUser));
     hub.sendToUser(blackUserId, matchFound(game, 'black', whiteUser));
@@ -139,6 +163,18 @@ async function applyMove({ gameId, userId, uci }) {
     }
     game.ply += 1;
 
+    // Turn switch: pause whoever just moved, start whoever is now to move — the
+    // same synchronous point the position itself advances, for the same reason
+    // (a second move arriving during the DB await must see the already-switched
+    // clocks, not the stale pair).
+    if (isWhite) {
+        game.clocks.white.pause();
+        game.clocks.black.start();
+    } else {
+        game.clocks.black.pause();
+        game.clocks.white.start();
+    }
+
     // Awaited before broadcasting: a move both players can see must exist in
     // the record. One indexed insert on local Postgres is 1-2ms against CW-57's
     // 150ms budget. Known cost: if this throws, the position has already
@@ -150,7 +186,10 @@ async function applyMove({ gameId, userId, uci }) {
         uci,
         fen,
         legalMoves: game.position.legalMoves(),
-        clocks: null,
+        clocks: {
+            white: game.clocks.white.remainingMs(),
+            black: game.clocks.black.remainingMs(),
+        },
     };
     hub.sendToUser(game.whiteUserId, event);
     hub.sendToUser(game.blackUserId, event);
@@ -173,11 +212,18 @@ async function applyMove({ gameId, userId, uci }) {
 async function endGame(game, { result, reason }) {
     const hub = require('../ws/hub');
 
+
+    // Stops both clocks' pending flag timers immediately — otherwise a clock from
+    // a game that just ended by checkmate/resign would still fire its setTimeout
+    // later into onFlag's no-op guard (harmless, but needless).
+    game.clocks.white.pause();
+    game.clocks.black.pause();
     // Removed synchronously, before either await below. A move arriving during
     // them finds no game and is dropped by applyMove's existing guard — which is
     // why Game.move needs no is-it-over check, and why this covers resignation
     // and timeout as well as the position-based endings.
     remove(game.id);
+    
 
     // Broadcast before persisting, which is the opposite of applyMove — and the
     // difference is deliberate. A move that reaches both boards without reaching

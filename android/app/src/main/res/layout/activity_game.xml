@@ -1,15 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Bare host for BoardView — see GameActivity for why this exists ahead of CW-41. -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
     tools:context=".ui.game.GameActivity">
+
+    <!-- Opponent's clock, above the board. GONE with no MatchFound extra (manual check). -->
+    <TextView
+        android:id="@+id/opponentClockText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:textAppearance="?attr/textAppearanceHeadlineSmall"
+        android:visibility="gone"
+        tools:text="10:00"
+        tools:visibility="visible" />
 
     <com.example.chesswhisper.ui.game.BoardView
         android:id="@+id/boardView"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center" />
+        android:layout_height="wrap_content" />
 
-</FrameLayout>
+    <!-- Own clock, below the board. -->
+    <TextView
+        android:id="@+id/myClockText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textAppearance="?attr/textAppearanceHeadlineSmall"
+        android:visibility="gone"
+        tools:text="10:00"
+        tools:visibility="visible" />
+
+</LinearLayout>

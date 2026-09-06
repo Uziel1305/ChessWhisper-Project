@@ -24,6 +24,7 @@ public final class ApiClient {
     private static volatile Retrofit retrofit;
     private static volatile AuthApi authApi;
     private static volatile UserApi userApi;
+    private static volatile OkHttpClient httpClient;
 
     // Private constructor — this is a static holder, never instantiated.
     private ApiClient(){}
@@ -34,24 +35,38 @@ public final class ApiClient {
         if(retrofit == null){
             synchronized (ApiClient.class){
                 if(retrofit == null){
-                    // Retrofit creates a default OkHttpClient internally: up to 64 concurrent
-                    // requests (5 per host), worker threads created on demand, and a pool holding
-                    // 5 idle connections for about 5 minutes. 
-                    // An explicit OkHttpClient rather than Retrofit's default,
-                    // so every call through every API gets the auth interceptor
-                    // and the refresh-on-401 authenticator below.
                     retrofit = new Retrofit.Builder()
                             // BASE_URL is a build config value, so debug points at the
                             // emulator's host alias and release at the real server.
                             .baseUrl(BuildConfig.BASE_URL)
                             // Gson handles JSON in both directions for every endpoint.
                             .addConverterFactory(GsonConverterFactory.create())
-                            .client(buildOkHttpClient())
+                            .client(getHttpClient())
                             .build();
                 }
             }
         }
         return retrofit;
+    }
+
+    // Shared with GameSocket's WebSocket handshake, so the Authorization header is
+    // still written in exactly one place (the interceptor below) rather than a
+    // second copy of this logic living next to the WS client.
+    public static OkHttpClient getHttpClient() {
+        if (httpClient == null) {
+            synchronized (ApiClient.class) {
+                if (httpClient == null) {
+                    // Retrofit creates a default OkHttpClient internally: up to 64 concurrent
+                    // requests (5 per host), worker threads created on demand, and a pool holding
+                    // 5 idle connections for about 5 minutes.
+                    // An explicit OkHttpClient rather than Retrofit's default,
+                    // so every call through every API gets the auth interceptor
+                    // and the refresh-on-401 authenticator below.
+                    httpClient = buildOkHttpClient();
+                }
+            }
+        }
+        return httpClient;
     }
 
 
