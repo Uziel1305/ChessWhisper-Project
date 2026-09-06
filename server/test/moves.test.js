@@ -139,6 +139,11 @@ describe('game.move', () => {
     it('accepts a legal move and returns the new position', async () => {
         const { white, gameId } = await matchedPair('MovesTestuser_legal');
 
+        // A measurable real delay so white's clock has actually ticked down by
+        // the time the move commits — otherwise elapsed time could be ~0ms and
+        // the clocks assertion below would be indistinguishable from a bug that
+        // never reads a live clock at all.
+        await new Promise((resolve) => setTimeout(resolve, 50));
         const event = await move(white, gameId, 'e2e4');
 
         expect(event.type).toBe('move.committed');
@@ -148,6 +153,13 @@ describe('game.move', () => {
         // make this fail on an upgrade that changed nothing that matters.
         expect(event.fen).toContain('4P3');
         expect(event.fen.split(' ')[1]).toBe('b');
+        // White moved, so white's clock paused with over 50ms visibly spent
+        // (the artificial delay above). Black's clock only just started — a
+        // few ms of real elapsed time before this payload was built is
+        // expected (the DB insert happens in between), not exactly 600000.
+        expect(event.clocks.white).toBeLessThan(600000 - 50);
+        expect(event.clocks.black).toBeLessThanOrEqual(600000);
+        expect(event.clocks.black).toBeGreaterThan(599000);
     });
 
      // The three below all assert silence, and silence on its own proves nothing —

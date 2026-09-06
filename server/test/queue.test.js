@@ -117,12 +117,18 @@ describe('matchmaking queue', () => {
         expect([eventA.color, eventB.color].sort()).toEqual(['black', 'white']);
         expect([eventA.opponent.username, eventB.opponent.username].sort())
             .toEqual(['QueueTestuser_a', 'QueueTestuser_b']);
-        // clocks is null again here — our CW-61 wiring didn't survive the merge
-        // with Uziel's moves-backend/opponent-move-instantly-backend PRs (see the
-        // "Merge resolution" note in the sprint plan). Re-wiring real clocks
-        // against the new GameManager.js is a follow-up ticket, not this one.
-        expect(eventA.clocks).toBeNull();
-        expect(eventB.clocks).toBeNull();
+        // Both sides' clocks start at (essentially) the full time control,
+        // re-wired against the new GameManager.js after the merge with Uziel's
+        // moves-backend/opponent-move-instantly-backend PRs. Not an exact 600000:
+        // real async work (the DB insert, the user lookups) happens between
+        // clocks.white.start() and this payload being built, so a few ms of
+        // real elapsed time is expected, not a bug.
+        for (const clocks of [eventA.clocks, eventB.clocks]) {
+            expect(clocks.white).toBeLessThanOrEqual(600000);
+            expect(clocks.white).toBeGreaterThan(599000);
+            expect(clocks.black).toBeLessThanOrEqual(600000);
+            expect(clocks.black).toBeGreaterThan(599000);
+        }
     });
 
     it('leaves a lone player waiting', async () => {
