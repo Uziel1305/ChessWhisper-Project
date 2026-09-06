@@ -45,10 +45,6 @@ public class GameActivity extends AppCompatActivity {
     // white's clock first — and flips on every move.committed. Never guessed
     // any other way.
     private String currentTurnColor = "white";
-    // Which side's TextView is currently ticking down — always "white" for now.
-    // TODO(move.committed): flip this (and re-sync both remaining values from the
-    // server) once that event exists; nothing currently ever changes whose turn it is.
-    private String tickingColor;
     private long whiteRemainingMs;
     private long blackRemainingMs;
     private long tickStartedAtElapsedRealtime;
@@ -137,6 +133,16 @@ public class GameActivity extends AppCompatActivity {
         boardView.setPosition(event.fen, event.legalMoves);
         currentTurnColor = "white".equals(currentTurnColor) ? "black" : "white";
         boardView.setInputEnabled(myColor.equals(currentTurnColor));
+
+        // Resync from the server's authoritative values rather than continuing
+        // to predict off the match.found snapshot — this is what makes the
+        // now-to-move side's clock actually start ticking on screen.
+        if (event.clocks != null) {
+            whiteRemainingMs = event.clocks.white;
+            blackRemainingMs = event.clocks.black;
+            tickStartedAtElapsedRealtime = SystemClock.elapsedRealtime();
+            updateClockDisplay();
+        }
     }
 
     private void handleGameEnd(GameEnd event) {
@@ -156,7 +162,6 @@ public class GameActivity extends AppCompatActivity {
     private void startClocks(MatchFound matchFound) {
         whiteRemainingMs = matchFound.clocks.white;
         blackRemainingMs = matchFound.clocks.black;
-        tickingColor = "white";
         tickStartedAtElapsedRealtime = SystemClock.elapsedRealtime();
         iAmWhite = "white".equals(matchFound.color);
 
@@ -169,9 +174,9 @@ public class GameActivity extends AppCompatActivity {
 
     private void updateClockDisplay() {
         long elapsed = SystemClock.elapsedRealtime() - tickStartedAtElapsedRealtime;
-        long liveWhite = "white".equals(tickingColor)
+        long liveWhite = "white".equals(currentTurnColor)
                 ? Math.max(0, whiteRemainingMs - elapsed) : whiteRemainingMs;
-        long liveBlack = "black".equals(tickingColor)
+        long liveBlack = "black".equals(currentTurnColor)
                 ? Math.max(0, blackRemainingMs - elapsed) : blackRemainingMs;
 
         opponentClockText.setText(formatClock(iAmWhite ? liveBlack : liveWhite));
