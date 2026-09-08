@@ -138,4 +138,26 @@ public final class GameSocket {
         move.addProperty("uci", uci);
         webSocket.send(move.toString());
     }
+
+    public void resign(String gameId) {
+        JsonObject resign = new JsonObject();
+        resign.addProperty("type", "game.resign");
+        resign.addProperty("gameId", gameId);
+        webSocket.send(resign.toString());
+    }
+
+    // Called when GameActivity is actually leaving for good (game over, resigned,
+    // or backed out) — never on a lifecycle event that only pauses it, like Home
+    // being pressed. close(), not cancel(): a graceful close still delivers any
+    // already-queued send (e.g. a resign just sent) before the connection tears
+    // down, where cancel() could drop it. Resets everything to a clean slate so
+    // the next connectAndJoinQueue() call starts fresh.
+    public void disconnect() {
+        if (webSocket != null) {
+            webSocket.close(1000, "leaving");
+            webSocket = null;
+        }
+        matchListener = null;
+        gameListener = null;
+    }
 }

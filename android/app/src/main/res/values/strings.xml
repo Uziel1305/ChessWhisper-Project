@@ -37,4 +37,9 @@
     <string name="game_result_win">%1$s wins by %2$s.</string>
     <string name="game_result_draw">Draw by %1$s.</string>
     <string name="game_result_back_home">Back to Home</string>
+
+    <string name="resign">Resign</string>
+    <string name="resign_confirm_title">Resign?</string>
+    <string name="resign_confirm_message">Are you sure you want to resign this game?</string>
+    <string name="resign_confirm_cancel">Cancel</string>
 </resources>

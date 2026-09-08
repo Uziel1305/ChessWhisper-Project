@@ -8,6 +8,26 @@
     android:gravity="center"
     tools:context=".ui.game.GameActivity">
 
+    <!-- Opponent's name and rating, above their clock. GONE with no MatchFound extra. -->
+    <TextView
+        android:id="@+id/opponentNameText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="?attr/textAppearanceTitleMedium"
+        android:visibility="gone"
+        tools:text="opponent_username"
+        tools:visibility="visible" />
+
+    <TextView
+        android:id="@+id/opponentRatingText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:visibility="gone"
+        tools:text="1200"
+        tools:visibility="visible" />
+
     <!-- Opponent's clock, above the board. GONE with no MatchFound extra (manual check). -->
     <TextView
         android:id="@+id/opponentClockText"
@@ -33,6 +53,15 @@
         android:textAppearance="?attr/textAppearanceHeadlineSmall"
         android:visibility="gone"
         tools:text="10:00"
+        tools:visibility="visible" />
+
+    <Button
+        android:id="@+id/resignButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/resign"
+        android:visibility="gone"
         tools:visibility="visible" />
 
 </LinearLayout>
