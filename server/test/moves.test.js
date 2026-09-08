@@ -267,6 +267,20 @@ describe('game.move', () => {
         expect(event.reason).toBe('resign');
     });
 
-    
+    it('ends the game as a loss for whoever disconnects mid-game', async () => {
+        const { white, black, gameId } = await matchedPair('MovesTestuser_abandon');
+
+        // terminate(), not close(): this stands in for a crash/force-stop/lost
+        // network, not a graceful leave — the abrupt case the disconnect
+        // handler exists for. Either way the server sees a 'close' event.
+        const ended = nextEvent(black);
+        white.terminate();
+
+        const event = await ended;
+        expect(event.type).toBe('game.end');
+        // Whoever disconnected loses, so white dropping is a win for black.
+        expect(event.result).toBe('0-1');
+        expect(event.reason).toBe('abandoned');
+    });
 
 })

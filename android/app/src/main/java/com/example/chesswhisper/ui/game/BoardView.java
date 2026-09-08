@@ -43,6 +43,9 @@ public class BoardView extends View {
     // GameActivity (CW-56) turns this off the instant a move is sent and while it
     // isn't this player's turn.
     private boolean inputEnabled = true;
+    // False by default so the CW-49/50 manual-check path (no live game) keeps its
+    // white-at-bottom view. GameActivity sets this from match.found's color.
+    private boolean flipped = false;
 
     private final Paint lightSquarePaint = new Paint();
     private final Paint darkSquarePaint = new Paint();
@@ -80,6 +83,14 @@ public class BoardView extends View {
         this.inputEnabled = inputEnabled;
     }
 
+    // Rotates the board 180 degrees so the local player's own pieces are always at
+    // the bottom - h-file on the left and rank 1 at the top for black, matching the
+    // standard "board flipped for black" convention.
+    public void setFlipped(boolean flipped) {
+        this.flipped = flipped;
+        invalidate();
+    }
+
     // Replaces the position wholesale — used both for the initial hardcoded position
     // and, later, whenever move.committed delivers a new one.
     public void setPosition(String fen, List<String> legalMoves) {
@@ -108,8 +119,10 @@ public class BoardView extends View {
 
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {
-                float left = col * squareSize;
-                float top = row * squareSize;
+                int screenRow = flipped ? 7 - row : row;
+                int screenCol = flipped ? 7 - col : col;
+                float left = screenCol * squareSize;
+                float top = screenRow * squareSize;
                 boolean isLight = (row + col) % 2 == 0;
                 canvas.drawRect(left, top, left + squareSize, top + squareSize,
                         isLight ? lightSquarePaint : darkSquarePaint);
@@ -143,8 +156,10 @@ public class BoardView extends View {
         }
         if (event.getAction() == MotionEvent.ACTION_UP) {
             float squareSize = getWidth() / 8f;
-            int col = (int) (event.getX() / squareSize);
-            int row = (int) (event.getY() / squareSize);
+            int screenCol = (int) (event.getX() / squareSize);
+            int screenRow = (int) (event.getY() / squareSize);
+            int row = flipped ? 7 - screenRow : screenRow;
+            int col = flipped ? 7 - screenCol : screenCol;
             if (row >= 0 && row < 8 && col >= 0 && col < 8) {
                 handleTap(squareName(row, col));
             }

@@ -130,6 +130,13 @@ function attachHub(server) {
                 // dying must not pull the user's current session out of it.
                 if (unregister(userId, ws)) {
                     queue.leave(userId);
+
+                    // A dropped connection mid-game must not leave the game live
+                    // forever with its clock ticking toward a flag nobody's
+                    // watching - abandon it on the disconnecting player's behalf.
+                    gameManager.abandon(userId).catch((err) => {
+                        console.error('abandon-on-disconnect failed:', err);
+                    });
                 }
             });
 

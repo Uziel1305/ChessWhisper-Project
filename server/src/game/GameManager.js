@@ -268,6 +268,27 @@ async function resign({ gameId, userId }) {
     });
 }
 
+// Called when a user's socket closes while they were in a live game - app
+// closed normally, crashed, force-stopped, or lost network. Not a deliberate
+// in-app action the way resign() is, hence the distinct reason. Scans games
+// rather than keeping a userId index: this only runs on the rare disconnect
+// event, and at the project's ~100-concurrent-game target a scan over the
+// live games costs nothing worth indexing for.
+async function abandon(userId) {
+    const leaver = String(userId);
+    for (const game of games.values()) {
+        const isWhite = leaver === String(game.whiteUserId);
+        const isBlack = leaver === String(game.blackUserId);
+        if (isWhite || isBlack) {
+            return endGame(game, {
+                result: isWhite ? '0-1' : '1-0',
+                reason: 'abandoned',
+            });
+        }
+    }
+    return null;
+}
+
 function get(gameId) {
     return games.get(gameId);
 }
@@ -282,4 +303,4 @@ function activeCount() {
     return games.size;
 }
 
-module.exports = { createGame, applyMove, resign, endGame, get, remove, activeCount };
+module.exports = { createGame, applyMove, resign, abandon, endGame, get, remove, activeCount };

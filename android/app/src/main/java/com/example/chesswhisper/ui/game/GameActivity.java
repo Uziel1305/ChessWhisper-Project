@@ -7,8 +7,11 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.chesswhisper.R;
@@ -37,10 +40,17 @@ public class GameActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private BoardView boardView;
+    private TextView opponentNameText;
+    private TextView opponentRatingText;
     private TextView opponentClockText;
     private TextView myClockText;
+    private Button resignButton;
     private String gameId;
     private String myColor;
+    // True once game.end has arrived — tells the Back-button handler apart a
+    // still-live game (confirm before leaving) from one already over (let the
+    // user through, nothing left to resign).
+    private boolean gameEnded = false;
     // Whoever is to move right now. Starts "white" — the server always starts
     // white's clock first — and flips on every move.committed. Never guessed
     // any other way.
@@ -67,15 +77,43 @@ public class GameActivity extends AppCompatActivity {
         setContentView(R.layout.activity_game);
 
         boardView = findViewById(R.id.boardView);
+        opponentNameText = findViewById(R.id.opponentNameText);
+        opponentRatingText = findViewById(R.id.opponentRatingText);
         opponentClockText = findViewById(R.id.opponentClockText);
         myClockText = findViewById(R.id.myClockText);
+        resignButton = findViewById(R.id.resignButton);
+        resignButton.setOnClickListener(v -> confirmResign());
+
+        // Leaving mid-game (Back) is treated the same as tapping Resign - the
+        // same confirm dialog, the same resign() call, no duplicate flow. Once
+        // the game has already ended, or there was never a live game to begin
+        // with (the no-MatchFound manual-launch path), Back falls through to
+        // the default behavior instead.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (gameId != null && !gameEnded) {
+                    confirmResign();
+                } else {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                }
+            }
+        });
 
         MatchFound matchFound = (MatchFound) getIntent().getSerializableExtra(EXTRA_MATCH_FOUND);
         if (matchFound != null) {
             gameId = matchFound.gameId;
             myColor = matchFound.color;
+            boardView.setFlipped(!"white".equals(myColor));
             boardView.setPosition(matchFound.fen, matchFound.legalMoves);
             boardView.setInputEnabled(myColor.equals(currentTurnColor));
+            if (matchFound.opponent != null) {
+                opponentNameText.setText(matchFound.opponent.username);
+                opponentRatingText.setText(String.valueOf(matchFound.opponent.rating));
+                opponentNameText.setVisibility(View.VISIBLE);
+                opponentRatingText.setVisibility(View.VISIBLE);
+            }
             if (matchFound.clocks != null) {
                 startClocks(matchFound);
             }
@@ -146,9 +184,31 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private void handleGameEnd(GameEnd event) {
+        gameEnded = true;
         handler.removeCallbacks(sendTimeoutRunnable);
         boardView.setInputEnabled(false);
         GameResultDialog.show(this, event.result, event.reason, this::goToHome);
+    }
+
+    private void confirmResign() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.resign_confirm_title)
+                .setMessage(R.string.resign_confirm_message)
+                .setPositiveButton(R.string.resign, (dialog, which) -> resign())
+                .setNegativeButton(R.string.resign_confirm_cancel, null)
+                .show();
+    }
+
+    // Only path that ever sends a resignation — from confirmResign()'s dialog.
+    // No send-timeout/retry the way sendMove has: unlike a move, there is
+    // nothing to recover to if this is dropped, so the button just stays
+    // disabled until game.end arrives and the result dialog takes over.
+    private void resign() {
+        if (gameId == null) {
+            return;
+        }
+        resignButton.setEnabled(false);
+        GameSocket.getInstance().resign(gameId);
     }
 
     private void goToHome() {
@@ -167,6 +227,7 @@ public class GameActivity extends AppCompatActivity {
 
         opponentClockText.setVisibility(View.VISIBLE);
         myClockText.setVisibility(View.VISIBLE);
+        resignButton.setVisibility(View.VISIBLE);
         updateClockDisplay();
 
         handler.post(clockTickRunnable);
@@ -193,5 +254,11 @@ public class GameActivity extends AppCompatActivity {
         super.onDestroy();
         handler.removeCallbacks(clockTickRunnable);
         handler.removeCallbacks(sendTimeoutRunnable);
+        // isFinishing() is false for a rotation-triggered recreate, where the
+        // connection must stay open — only a real exit closes it. Same pattern
+        // LoginActivity uses to tell a real destroy apart from one that isn't.
+        if (isFinishing()) {
+            GameSocket.getInstance().disconnect();
+        }
     }
 }
