@@ -173,9 +173,12 @@ the custom C++ engine is still being written, and the engine is swapped in at th
 - Both features need *an* evaluation, not a *good* one — the bar renders a number and
   classification derives cp-loss from consecutive evaluations. Neither depends on engine
   strength, so neither should wait on engine progress.
-- Without this, the two features sit behind the project's single biggest unknown (perft
-  debugging on hand-written move generation). With it, they are finished and demoable weeks
-  before the engine is, and a slipping engine costs evaluation *quality* rather than features.
+- Without this, the two features sit behind the engine's own timeline. With it, they are
+  finished and demoable weeks before the engine is, and a slipping engine costs evaluation
+  *quality* rather than features. (Originally this guarded against perft debugging on
+  hand-written move generation, then the project's single biggest unknown. That specific risk
+  was removed in September 2026 — see the entry below — but the scaffold still earns its
+  place, because evaluation and search remain unwritten.)
 - The swap is a one-line facade config change, and Stockfish stays in the repo afterwards as
   the benchmark that validates the custom engine's evaluations against a known-good reference.
 - **Stockfish is never the deliverable.** The shipped product runs the custom engine — this is
@@ -317,3 +320,38 @@ AI-assist features are switched on for that game:
   and `move.committed.fen` are computed live by `Game.js` and are unaffected. The general
   rule it illustrates: a storage-only change belongs to the server alone, while any change
   to an event's *shape* has to be told to whoever is writing the client.
+
+### The engine's rules come from a library; its evaluation and search are ours (decided September 2026)
+
+The C++ engine vendors [Disservin/chess-library](https://github.com/Disservin/chess-library)
+for board representation, FEN handling and legal move generation. `eval.cpp` and `search.cpp`
+are written from scratch. The original plan — hand-written move generation, CW-79 — was
+deleted, and CW-78 rewritten as a library integration:
+
+- **The same rule the server already follows: rules → library, evaluation → ours.** The Node
+  server has always used chess.js rather than implementing the rules; extending that to the
+  engine is consistency, not a retreat.
+- **`ProjectArchitectureDocument-43.docx` Objective 2 asks for a custom AI-based engine, and
+  this still delivers one.** Move generation is not AI — it is deterministic, has exactly one
+  correct answer, and is verifiable against published perft counts. The AI is the evaluation
+  function and the search: material weights, piece-square tables, negamax, alpha-beta,
+  iterative deepening, quiescence and MVV-LVA ordering (CW-115 → CW-121) are all still ours.
+- **What it bought:** hand-written movegen plus perft debugging was assessed as the project's
+  largest schedule risk and the one coin-flip in it. Removing it costs nothing the project is
+  graded on and returns days to the part that is.
+- **Two rules implementations now exist, with different jobs.** chess.js on the server is
+  *authoritative* — it validates every player move. `chess.hpp` in the engine never sees a
+  player's move; it only feeds the search, which generates and unmakes positions internally.
+  They cannot disagree about a live game because only one of them is ever asked.
+- **The library sits behind our own wrapper** (CW-95), so evaluation and search never call it
+  directly. That keeps it swappable and keeps the engine's own code legible as ours.
+- **Perft (CW-80) still runs**, but as verification of the integration rather than debugging of
+  our own generator. It still catches real wrapper bugs — wrong side to move, a castling right
+  dropped in translation, a promotion that produces three moves instead of four.
+- **Pinned to a commit SHA, not a tag** (`53e6a841dcda7059a2af363d85f785ef1817304a`), because
+  the project publishes no releases. MIT licensed, with its `LICENSE` vendored alongside the
+  header in `engine/cpp/third_party/`.
+- Rejected alternative: hand-writing move generation anyway, for its own sake. It is genuinely
+  educational, and in a term with slack it would be the better exercise — but it consumes the
+  riskiest days in the schedule to produce something a library already does correctly, while
+  the parts that actually demonstrate the project's thesis go unwritten.
