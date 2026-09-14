@@ -25,5 +25,8 @@ services:
     ports:
       - "${PORT}:${PORT}"
 
+  engine:
+    build: ./engine
+
 volumes:
   db-data:
