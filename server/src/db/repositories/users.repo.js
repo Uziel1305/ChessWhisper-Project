@@ -49,5 +49,16 @@ async function insert(username, passwordHash){
     }
 }
 
-module.exports={findByUsername,insert,DuplicateUsernameError,findById};
+// Writes the new rating after a game ends (GameManager's endGame, per
+// CW-134). Takes the already-computed new value rather than a delta — the
+// delta math is elo.js's job, this is just the write.
+async function updateRating(id, rating){
+    const result= await pool.query(
+        'UPDATE users SET rating=$2 WHERE id=$1 RETURNING id,username, rating, created_at',
+        [id, rating]
+    );
+    return result.rows[0];
+}
+
+module.exports={findByUsername,insert,DuplicateUsernameError,findById,updateRating};
 

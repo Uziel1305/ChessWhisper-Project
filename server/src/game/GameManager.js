@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const gamesRepo = require('../db/repositories/games.repo');
 const movesRepo = require('../db/repositories/moves.repo');
 const usersRepo = require('../db/repositories/users.repo');
+const ratingsRepo = require('../db/repositories/ratings.repo');
+const elo = require('../rating/elo');
 const Game = require('./Game');
 const Clock = require('./clock');
 
@@ -206,6 +208,15 @@ async function applyMove({ gameId, userId, uci }) {
 }
 
 
+// White's score for elo.js's `score` parameter — the only one of the three
+// PGN results elo.js needs translated, since it always takes white's
+// perspective as "A" and derives black's as 1 - score.
+function scoreForWhite(result) {
+    if (result === '1-0') return 1;
+    if (result === '0-1') return 0;
+    return 0.5;
+}
+
 // The single exit for every ending — checkmate, draw, resignation, and the
 // timeout Tamir's CW-63 will call this with. Takes the verdict rather than
 // working it out, because only two of the four come from the position.
@@ -223,7 +234,31 @@ async function endGame(game, { result, reason }) {
     // why Game.move needs no is-it-over check, and why this covers resignation
     // and timeout as well as the position-based endings.
     remove(game.id);
-    
+
+    // Rating deltas need each player's *current* rating (match.found's
+    // snapshot is stale by now — either player may have finished other games
+    // since) and how many rated games they've each already finished, for
+    // elo.js's K-factor. This is the one unavoidable await before the
+    // broadcast below: unlike result/reason, a rating change cannot be worked
+    // out from the position, it has to be read first. countRatedGames is
+    // called before gamesRepo.finish() below records this game, so it
+    // correctly counts only games finished *before* this one.
+    const [whiteUser, blackUser, whiteGamesPlayed, blackGamesPlayed] = await Promise.all([
+        usersRepo.findById(game.whiteUserId),
+        usersRepo.findById(game.blackUserId),
+        ratingsRepo.countRatedGames(game.whiteUserId),
+        ratingsRepo.countRatedGames(game.blackUserId),
+    ]);
+
+    const { deltaA: whiteDelta, deltaB: blackDelta } = elo.computeElo({
+        ratingA: whiteUser.rating,
+        ratingB: blackUser.rating,
+        score: scoreForWhite(result),
+        gamesPlayedA: whiteGamesPlayed,
+        gamesPlayedB: blackGamesPlayed,
+    });
+    const whiteNewRating = whiteUser.rating + whiteDelta;
+    const blackNewRating = blackUser.rating + blackDelta;
 
     // Broadcast before persisting, which is the opposite of applyMove — and the
     // difference is deliberate. A move that reaches both boards without reaching
@@ -232,13 +267,39 @@ async function endGame(game, { result, reason }) {
     // the write fails, the worst case is a games row left with a null result,
     // while the alternative is two players stranded on a dead board with no idea
     // why their moves stopped working.
-    const event = { type: 'game.end', result, reason };
-    hub.sendToUser(game.whiteUserId, event);
-    hub.sendToUser(game.blackUserId, event);
+    //
+    // Each side gets its own payload now, not a shared object like before
+    // CW-134: the rating delta genuinely differs between the two players, so
+    // there is no longer a single event that is equally true for both.
+    const whiteEvent = {
+        type: 'game.end', result, reason,
+        newRating: whiteNewRating, ratingDelta: whiteDelta,
+    };
+    const blackEvent = {
+        type: 'game.end', result, reason,
+        newRating: blackNewRating, ratingDelta: blackDelta,
+    };
+    hub.sendToUser(game.whiteUserId, whiteEvent);
+    hub.sendToUser(game.blackUserId, blackEvent);
 
-    await gamesRepo.finish({ id: game.id, result, reason });
+    // Same "broadcast before persisting" reasoning extends to the rating
+    // writes: a failure here is no worse than a failed gamesRepo.finish
+    // already was, and both players have already seen the outcome either way.
+    await Promise.all([
+        gamesRepo.finish({ id: game.id, result, reason }),
+        usersRepo.updateRating(game.whiteUserId, whiteNewRating),
+        usersRepo.updateRating(game.blackUserId, blackNewRating),
+        ratingsRepo.recordRatingChange({
+            gameId: game.id, userId: game.whiteUserId,
+            ratingBefore: whiteUser.rating, ratingAfter: whiteNewRating,
+        }),
+        ratingsRepo.recordRatingChange({
+            gameId: game.id, userId: game.blackUserId,
+            ratingBefore: blackUser.rating, ratingAfter: blackNewRating,
+        }),
+    ]);
 
-    return event;
+    return { white: whiteEvent, black: blackEvent };
 }
 
 
