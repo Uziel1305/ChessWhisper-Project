@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(chesswhisper_engine
     src/main.cpp
+    src/board.cpp
 )
 target_include_directories(chesswhisper_engine PRIVATE third_party)
 # The build stage compiles with GCC 13, but the runtime image ships Debian

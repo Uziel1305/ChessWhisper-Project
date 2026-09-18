@@ -7,6 +7,7 @@ const ENGINE_PATH = process.env.ENGINE_BINARY_PATH || '/app/engine/chesswhisper_
 
 function handshake(){
     return new Promise((resolve,reject)=>{
+        //craetes a new process
         const child=spawn(ENGINE_PATH);
         const lines=readline.createInterface({input:child.stdout});
         child.on('error',reject);
