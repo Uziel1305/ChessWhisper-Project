@@ -179,3 +179,103 @@ describe('matchmaking queue', () => {
 
 })
 
+// CW-125: exercises queue.join() directly rather than through a socket. join()
+// is synchronous and deliberately free of the database (see the file's own
+// header comment) — routing these through the WS/DB-backed harness above
+// would mean mixing jest's fake timers with real async DB calls, which is the
+// same combination clock.test.js's comment already warns is flaky. Calling
+// join() directly is the same shortcut gameManager.test.js takes when it
+// calls GameManager.createGame() instead of going through a real queue.join.
+//
+// This describe is a sibling of 'matchmaking queue' above, not nested inside
+// it, so that block's beforeEach(queue.clear()) does not reach here — hence
+// this file's own beforeEach. Each test needs to start from a clean queue: a
+// join that fails to pair still queues the caller, so leftover state from an
+// earlier test would let a later one match by coincidence instead of by the
+// behaviour actually being tested.
+describe('rating-based matching', () => {
+    beforeEach(() => {
+        queue.clear();
+    });
+
+    afterEach(() => {
+        jest.useRealTimers();
+    });
+
+    it('matches two players within 100 rating points immediately', () => {
+        queue.join({ userId: 'rating_a1', mode: 'classic', timeControl: 600000, rating: 1000 });
+        const pair = queue.join({ userId: 'rating_a2', mode: 'classic', timeControl: 600000, rating: 1080 });
+
+        expect(pair).not.toBeNull();
+        expect(pair.players.map((p) => p.userId).sort()).toEqual(['rating_a1', 'rating_a2']);
+    });
+
+    it('does not match two players 400 rating points apart immediately', () => {
+        queue.join({ userId: 'rating_b1', mode: 'classic', timeControl: 600000, rating: 1000 });
+        const pair = queue.join({ userId: 'rating_b2', mode: 'classic', timeControl: 600000, rating: 1400 });
+
+        expect(pair).toBeNull();
+    });
+
+    // 10s of waiting only widens the window to 100 + 50*1 = 150 — nowhere
+    // near enough to cover a 400-point gap.
+    it('is not widened enough by 10 seconds of waiting to cover a 400-point gap', () => {
+        jest.useFakeTimers();
+
+        queue.join({ userId: 'rating_c1', mode: 'classic', timeControl: 600000, rating: 1000 });
+        jest.advanceTimersByTime(10000);
+        const pair = queue.join({ userId: 'rating_c2', mode: 'classic', timeControl: 600000, rating: 1400 });
+
+        expect(pair).toBeNull();
+    });
+
+    // 60s of waiting widens the window to 100 + 50*6 = 400 — exactly enough
+    // to cover the gap this test checks.
+    it('widens the window with waiting time until a 400-point gap matches', () => {
+        jest.useFakeTimers();
+
+        queue.join({ userId: 'rating_d1', mode: 'classic', timeControl: 600000, rating: 1000 });
+        jest.advanceTimersByTime(60000);
+        const pair = queue.join({ userId: 'rating_d2', mode: 'classic', timeControl: 600000, rating: 1400 });
+
+        expect(pair).not.toBeNull();
+        expect(pair.players.map((p) => p.userId).sort()).toEqual(['rating_d1', 'rating_d2']);
+    });
+
+    // Locks in oldest-qualifying-first, not closest-rating-first. e1 (1000)
+    // and e2 (1200) queue 200 points apart — too far to match each other —
+    // so both are still waiting when e3 (1100) arrives, exactly 100 from
+    // each of them. e3 must match e1, the older of the two, even though
+    // both are equally eligible. A second join (e4, 1200) then proves e2
+    // was left waiting rather than matched or dropped.
+    it('matches the oldest eligible waiter first when more than one qualifies', () => {
+        queue.join({ userId: 'rating_e1', mode: 'classic', timeControl: 600000, rating: 1000 });
+        queue.join({ userId: 'rating_e2', mode: 'classic', timeControl: 600000, rating: 1200 });
+
+        const pairWithE3 = queue.join({ userId: 'rating_e3', mode: 'classic', timeControl: 600000, rating: 1100 });
+        expect(pairWithE3).not.toBeNull();
+        expect(pairWithE3.players.map((p) => p.userId).sort()).toEqual(['rating_e1', 'rating_e3']);
+
+        const pairWithE4 = queue.join({ userId: 'rating_e4', mode: 'classic', timeControl: 600000, rating: 1200 });
+        expect(pairWithE4).not.toBeNull();
+        expect(pairWithE4.players.map((p) => p.userId).sort()).toEqual(['rating_e2', 'rating_e4']);
+    });
+
+    // f1 queued first but is outside the window for f3; f2 queued after and
+    // is inside it. The scan must skip the ineligible-but-older f1 and match
+    // the eligible-but-younger f2. A second join (f4, matching f1's rating)
+    // then proves f1 was skipped rather than removed or matched by mistake.
+    it('skips an ineligible older waiter and matches the first eligible one', () => {
+        queue.join({ userId: 'rating_f1', mode: 'classic', timeControl: 600000, rating: 1000 });
+        queue.join({ userId: 'rating_f2', mode: 'classic', timeControl: 600000, rating: 1300 });
+
+        const pairWithF3 = queue.join({ userId: 'rating_f3', mode: 'classic', timeControl: 600000, rating: 1300 });
+        expect(pairWithF3).not.toBeNull();
+        expect(pairWithF3.players.map((p) => p.userId).sort()).toEqual(['rating_f2', 'rating_f3']);
+
+        const pairWithF4 = queue.join({ userId: 'rating_f4', mode: 'classic', timeControl: 600000, rating: 1000 });
+        expect(pairWithF4).not.toBeNull();
+        expect(pairWithF4.players.map((p) => p.userId).sort()).toEqual(['rating_f1', 'rating_f4']);
+    });
+});
+

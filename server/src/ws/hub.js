@@ -7,6 +7,7 @@ const {WebSocketServer,WebSocket}=require('ws')
 const wss=new WebSocketServer({noServer:true})
 const queue = require('../matchmaking/queue');
 const gameManager = require('../game/GameManager');
+const usersRepo = require('../db/repositories/users.repo');
 
 // userId -> that user's socket. One only: a game cannot be played from two
 // places at once, and a second socket creates a second board that can send
@@ -151,12 +152,25 @@ function attachHub(server) {
 
 
 async function handleQueueJoin(ws, event) {
+    // CW-127/128 need each waiter's rating to decide who can pair with whom.
+    // Read here, not in queue.js: the queue is deliberately free of the
+    // database (see its own header comment), so it only ever receives rating
+    // as plain data, the same way it already receives mode and timeControl.
+    // No null-check on a missing row: ws.userId came from a verified JWT
+    // moments ago, and a user deleted in that window is an edge case nothing
+    // else on this path guards against either (createGame's FK violation is
+    // the closest precedent, and that's caught downstream too) — a missing
+    // row throws here and falls into the same catch-all below as any other
+    // unexpected failure.
+    const user = await usersRepo.findById(ws.userId);
+
     let pair;
     try {
         pair = queue.join({
             userId: ws.userId,
             mode: event.mode,
             timeControl: event.timeControl,
+            rating: user.rating,
         });
     } catch (err) {
         if (err instanceof queue.InvalidQueueRequestError) {
