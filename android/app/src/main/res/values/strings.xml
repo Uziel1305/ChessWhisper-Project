@@ -36,6 +36,10 @@
     <string name="game_over_title">Game Over</string>
     <string name="game_result_win">%1$s wins by %2$s.</string>
     <string name="game_result_draw">Draw by %1$s.</string>
+    <!-- %2$s is a pre-formatted signed delta ("+14"/"-9") built in code, not a
+         raw number — a loss must never print as a bare positive-looking digit
+         string with no sign at all. -->
+    <string name="game_result_rating_change">New rating: %1$d (%2$s)</string>
     <string name="game_result_back_home">Back to Home</string>
 
     <string name="resign">Resign</string>
