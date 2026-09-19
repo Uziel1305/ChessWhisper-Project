@@ -10,6 +10,12 @@ RUN cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release \
 
 # ---- runtime stage: Node facade + the compiled binary beside it ----
 FROM node:20-slim
+# Stockfish is the development stand-in behind the facade (CLAUDE.md: "custom
+# engine is built behind a Stockfish scaffold"). Debian installs it to
+# /usr/games/stockfish. Which binary the facade actually runs is chosen by
+# ENGINE_BINARY_PATH in docker-compose.yml, not by anything in this file.
+RUN apt-get update && apt-get install -y --no-install-recommends stockfish \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY facade/package*.json ./
 RUN npm ci --omit=dev
