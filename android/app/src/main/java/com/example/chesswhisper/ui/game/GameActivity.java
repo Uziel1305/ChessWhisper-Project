@@ -187,7 +187,8 @@ public class GameActivity extends AppCompatActivity {
         gameEnded = true;
         handler.removeCallbacks(sendTimeoutRunnable);
         boardView.setInputEnabled(false);
-        GameResultDialog.show(this, event.result, event.reason, this::goToHome);
+        GameResultDialog.show(this, event.result, event.reason, event.newRating, event.ratingDelta,
+                this::goToHome);
     }
 
     private void confirmResign() {

@@ -15,6 +15,14 @@
         android:textAppearance="?attr/textAppearanceBodyLarge"
         tools:text="Black wins by timeout." />
 
+    <TextView
+        android:id="@+id/ratingChangeText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        tools:text="New rating: 1016 (+16)" />
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/backToHomeButton"
         android:layout_width="match_parent"
