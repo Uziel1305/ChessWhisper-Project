@@ -1,5 +1,5 @@
 #pragma once
-
+#include <optional>
 
 #include <string>
 #include <string_view>
@@ -31,6 +31,16 @@ public:
 
     void legalMoves(MoveList& out) const;
 
+    // UCI conversion lives here so nothing outside this wrapper ever names
+    // chess::uci. Castling is the reason these must be used rather than
+    // building the string from from()/to(): the library stores castling as
+    // king-takes-own-rook (e1h1), and UCI expects e1g1.
+    std::string toUci(Move m) const;
+
+    // nullopt if the string is malformed. This checks syntax, not legality —
+    // "e2e5" parses cleanly from the starting position.
+    std::optional<Move> fromUci(std::string_view uci) const;
+    
     void makeMove(Move m) { board_.makeMove(m); }
     // The library needs the same move object back — it reads the move type and
     // the captured piece out of it to restore state.
