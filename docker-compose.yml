@@ -17,16 +17,25 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # service_started, not service_healthy: a dead or slow engine must never
+      # keep the game server from starting.
+      engine:
+        condition: service_started
     environment:
       DATABASE_URL: ${DATABASE_URL}
       PORT: ${PORT}
       JWT_SECRET: ${JWT_SECRET}
+      ENGINE_URL: ${ENGINE_URL}
 
     ports:
       - "${PORT}:${PORT}"
 
   engine:
     build: ./engine
+    environment:
+      # Which UCI binary the facade runs. Swapping Stockfish for the custom
+      # engine is this one line -> /app/engine/chesswhisper_engine
+      ENGINE_BINARY_PATH: /usr/games/stockfish
 
 volumes:
   db-data:
