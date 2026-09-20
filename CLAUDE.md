@@ -317,3 +317,31 @@ AI-assist features are switched on for that game:
   and `move.committed.fen` are computed live by `Game.js` and are unaffected. The general
   rule it illustrates: a storage-only change belongs to the server alone, while any change
   to an event's *shape* has to be told to whoever is writing the client.
+
+### Move classification thresholds (decided September 2026)
+
+A move's verdict comes from its centipawn loss, against these fixed thresholds:
+
+| Verdict | cp loss |
+|---|---|
+| best | 0–10 |
+| good | 11–50 |
+| inaccuracy | 51–100 |
+| mistake | 101–200 |
+| blunder | 201+ |
+
+- CW-87 asks for "the documented thresholds", but no earlier document (Jira, the repo, the
+  architecture documents available to us) gave numbers. These were defined by the team when
+  CW-87 was built, and this entry is now the documentation.
+- Cp loss is the drop, from the mover's point of view, between the evaluation of the
+  position they faced and the evaluation after their move, clamped at 0. Both evaluations
+  are white-perspective centipawns, so white loses when the number falls and black when it
+  rises. Mate scores are clamped to ±10000 by the engine facade, so walking into mate
+  reads as a loss of about that size — a blunder.
+- The table lives in one place: `THRESHOLDS` in `server/src/game/classification.js`. A
+  change is a one-line edit there plus this entry, and `server/test/classification.test.js`
+  pins every boundary on both sides.
+- These are **engine-relative**: the same move can lose a slightly different number of
+  centipawns under Stockfish and under the custom engine. CW-83's benchmark is where that
+  is checked — known blunders and known good moves must get matching classifications from
+  both — and is the one place these numbers may be revisited.

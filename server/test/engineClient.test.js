@@ -1,5 +1,11 @@
 const http = require('http');
-const { evaluate, DEFAULT_BUDGET_MS } = require('../src/engine/engineClient');
+const {
+    evaluate,
+    DEFAULT_BUDGET_MS,
+    COOLDOWN_MS,
+    _resetBreaker,
+    _setClock,
+} = require('../src/engine/engineClient');
 
 // A throwaway HTTP server standing in for the engine facade, so these tests need
 // no engine and no network beyond loopback. `handler` decides how it answers.
@@ -29,6 +35,12 @@ const FEN = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
 describe('engineClient.evaluate', () => {
     const originalUrl = process.env.ENGINE_URL;
     let stub;
+
+    // The breaker is module-level state: without this, the first test that
+    // makes the engine fail would leave every later test facing an open circuit.
+    beforeEach(() => {
+        _resetBreaker();
+    });
 
     afterEach(async () => {
         process.env.ENGINE_URL = originalUrl;
@@ -111,5 +123,116 @@ describe('engineClient.evaluate', () => {
         // No `await` on the call itself: a synchronous throw would escape here.
         const pending = evaluate(FEN);
         await expect(pending).rejects.toThrow('ENGINE_URL is not set');
+    });
+
+    // Why this exists: when the engine service dies, the hostname stops
+    // resolving, and every lookup of it holds one of libuv's four threads for
+    // ~8s — abort or no abort. A handful of those starves every other lookup in
+    // the process, including Postgres opening a new connection, which delayed
+    // game.end by ~6.5s in a real run. So after a failure the client stops
+    // touching the network at all for a while.
+    describe('circuit breaker', () => {
+        let now;
+        let healthy;
+
+        // A stub that fails or succeeds on demand, so one test can walk it
+        // through open -> probe -> closed.
+        async function startSwitchableStub() {
+            stub = await startStub((req, res) => {
+                res.writeHead(healthy ? 200 : 500, { 'content-type': 'application/json' });
+                res.end(JSON.stringify(healthy ? { cp: 12 } : { error: 'evaluate_failed' }));
+            });
+            process.env.ENGINE_URL = stub.url;
+        }
+
+        beforeEach(() => {
+            now = 1_000_000;
+            _setClock(() => now);
+            healthy = false;
+        });
+
+        it('after a failure, rejects at once without contacting the engine', async () => {
+            await startSwitchableStub();
+
+            await expect(evaluate(FEN)).rejects.toThrow('engine responded 500');
+            expect(stub.requests).toHaveLength(1);
+
+            await expect(evaluate(FEN)).rejects.toThrow('circuit open');
+            await expect(evaluate(FEN)).rejects.toThrow('circuit open');
+            expect(stub.requests).toHaveLength(1); // still only the first
+        });
+
+        it('stays open until the cool-down has fully elapsed', async () => {
+            await startSwitchableStub();
+            await expect(evaluate(FEN)).rejects.toThrow('engine responded 500');
+
+            now += COOLDOWN_MS - 1;
+            healthy = true;
+            await expect(evaluate(FEN)).rejects.toThrow('circuit open');
+            expect(stub.requests).toHaveLength(1);
+        });
+
+        it('after the cool-down, lets one probe through and closes on success', async () => {
+            await startSwitchableStub();
+            await expect(evaluate(FEN)).rejects.toThrow('engine responded 500');
+
+            now += COOLDOWN_MS;
+            healthy = true;
+            await expect(evaluate(FEN)).resolves.toBe(12); // the probe
+            await expect(evaluate(FEN)).resolves.toBe(12); // circuit closed again
+            expect(stub.requests).toHaveLength(3);
+        });
+
+        it('re-opens for a full cool-down when the probe fails', async () => {
+            await startSwitchableStub();
+            await expect(evaluate(FEN)).rejects.toThrow('engine responded 500');
+
+            now += COOLDOWN_MS;
+            await expect(evaluate(FEN)).rejects.toThrow('engine responded 500'); // failed probe
+            expect(stub.requests).toHaveLength(2);
+
+            await expect(evaluate(FEN)).rejects.toThrow('circuit open');
+            expect(stub.requests).toHaveLength(2);
+
+            now += COOLDOWN_MS;
+            healthy = true;
+            await expect(evaluate(FEN)).resolves.toBe(12);
+        });
+
+        it('lets only one probe through while it is in flight', async () => {
+            await startSwitchableStub();
+            await expect(evaluate(FEN)).rejects.toThrow('engine responded 500');
+            now += COOLDOWN_MS;
+
+            // Replace the stub with one that holds its answer back.
+            let release;
+            const held = new Promise((resolve) => { release = resolve; });
+            await new Promise((resolve) => stub.server.close(resolve));
+            stub = await startStub(async (req, res) => {
+                await held;
+                res.writeHead(200, { 'content-type': 'application/json' });
+                res.end(JSON.stringify({ cp: 5 }));
+            });
+            process.env.ENGINE_URL = stub.url;
+
+            const probe = evaluate(FEN);
+            await new Promise((resolve) => setTimeout(resolve, 50)); // let it reach the stub
+            expect(stub.requests).toHaveLength(1);
+
+            // A second caller while the probe is out must not become a second probe.
+            await expect(evaluate(FEN)).rejects.toThrow('circuit open');
+            expect(stub.requests).toHaveLength(1);
+
+            release();
+            await expect(probe).resolves.toBe(5);
+        });
+
+        it('never opens while the engine keeps answering', async () => {
+            healthy = true;
+            await startSwitchableStub();
+
+            for (let i = 0; i < 5; i++) await expect(evaluate(FEN)).resolves.toBe(12);
+            expect(stub.requests).toHaveLength(5);
+        });
     });
 });

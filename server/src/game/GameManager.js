@@ -6,8 +6,17 @@ const ratingsRepo = require('../db/repositories/ratings.repo');
 const elo = require('../rating/elo');
 const Game = require('./Game');
 const Clock = require('./clock');
+const engineClient = require('../engine/engineClient');
+const { classify, cpLoss } = require('./classification');
 
-
+// The modes whose games ask the engine for anything. Opt-in: classic,
+// retraction and any mode added later cost zero engine calls until they are
+// listed here, and the engine is the scarce resource (CLAUDE.md, "Engine
+// capacity"). Deliberately separate from queue.js's MODES, which is the set a
+// player may *request*. retraction is absent on purpose: its verdict would gate
+// a timed undo window, which is a different, latency-critical design from the
+// fire-and-forget evaluation below.
+const EVALUATED_MODES = new Set(['eval', 'feedback']);
 
 // gameId -> the live game. The database rows are the durable record; this is
 // what moves are actually applied to. /api/admin/stats reads active games here.
@@ -19,6 +28,11 @@ const Clock = require('./clock');
 //               blackUserId:   '12'           ← string
 //               position:      Game{ chess.js }   ← RAM only
 //               ply:           0                  ← RAM only
+//               evals:         Map{ ply → cp }    ← RAM only. White-perspective
+//                              centipawns from the engine, one per evaluated ply.
+//                              Filled as results arrive, in any order.
+//               classified:    Set{ ply }         ← RAM only. Plies whose verdict
+//                              has been sent, so none is ever sent twice.
 //            }
 const games = new Map();
 
@@ -114,6 +128,8 @@ async function createGame({ mode, timeControl, players }) {
         // advances it — it moves in lockstep with position, below.
         ply: 0,
         clocks,
+        evals: new Map(),
+        classified: new Set(),
     };
     games.set(id, game);
     // White is to move as soon as the game exists.
@@ -164,6 +180,9 @@ async function applyMove({ gameId, userId, uci }) {
         return null;
     }
     game.ply += 1;
+    // Captured now, synchronously, for the evaluation below: game.ply may have
+    // moved on by the time the insert's await returns.
+    const ply = game.ply;
 
     // Turn switch: pause whoever just moved, start whoever is now to move — the
     // same synchronous point the position itself advances, for the same reason
@@ -196,6 +215,15 @@ async function applyMove({ gameId, userId, uci }) {
     hub.sendToUser(game.whiteUserId, event);
     hub.sendToUser(game.blackUserId, event);
 
+    // The one place the engine is called: once per committed half-move, and for
+    // the move that ends the game too — a mating move is still a committed
+    // half-move. Placed before the outcome check below so it fires however the
+    // game ends. Not awaited, and its promise is not returned: move.committed
+    // has already gone out, and nothing after this line may wait on the engine.
+    if (EVALUATED_MODES.has(game.mode)) {
+        evaluatePly(game, ply, fen);
+    }
+
     // After move.committed, never before: the clients need the final position
     // rendered before they are told the game is over, and the test asserts that
     // order — move.committed then game.end, on the same socket.
@@ -205,6 +233,80 @@ async function applyMove({ gameId, userId, uci }) {
     }
 
     return event;
+}
+
+
+// Odd plies are white's, even plies black's — ply 1 is white's first move.
+function moverOf(ply) {
+    return ply % 2 === 1 ? 'white' : 'black';
+}
+
+// Asks the engine about the position a move produced and publishes whatever the
+// answer is good for. Closes over `game` rather than looking it up in `games`:
+// endGame removes the game from that map synchronously, so for the final move of
+// a game the answer arrives after the lookup would already fail — and it should
+// still be stored and sent (sendToUser is a no-op for a socket that is gone).
+//
+// async, so the engineClient call runs synchronously up to its first await and
+// every failure lands in the catch below; an unhandled rejection here would
+// otherwise take down the process over a missing evaluation.
+async function evaluatePly(game, ply, fen) {
+    try {
+        const cp = await engineClient.evaluate(fen);
+        game.evals.set(ply, cp);
+        publishEvaluation(game, ply);
+    } catch (err) {
+        // A failed evaluation is a gap, not an error the game can act on: the
+        // move is committed and delivered either way. That ply, and the one
+        // after it (which needs it as its "before"), simply get no verdict.
+        console.error('evaluation failed for ply', ply, 'of game', game.id, ':', err);
+    }
+}
+
+// One stored result, two consumers. What is *sent* depends on the game's mode,
+// not on what has been computed: a player holding an assist their opponent lacks
+// has an unfair advantage (CLAUDE.md, `mode`), so an eval game never carries a
+// verdict and a feedback game never carries the bar value.
+function publishEvaluation(game, ply) {
+    const hub = require('../ws/hub');
+
+    if (game.mode === 'eval') {
+        // Both players see the same bar, and it needs no neighbouring result, so
+        // it goes out the moment it arrives.
+        const event = { type: 'move.evaluated', ply, evalCp: game.evals.get(ply) };
+        hub.sendToUser(game.whiteUserId, event);
+        hub.sendToUser(game.blackUserId, event);
+    }
+
+    if (game.mode === 'feedback') {
+        // Results arrive in any order. This ply's answer can be the missing half
+        // of its own verdict (with ply - 1) or of the next one's (with ply + 1),
+        // so both are tried; classifyPly does nothing until both halves exist.
+        classifyPly(game, ply);
+        classifyPly(game, ply + 1);
+    }
+}
+
+// A move's verdict needs the evaluation before it and after it. Ply 1 never has
+// a "before" — no evaluation exists for the start position, and asking for one
+// would be an engine call belonging to no committed half-move — so white's first
+// move is never classified.
+function classifyPly(game, ply) {
+    const hub = require('../ws/hub');
+
+    if (ply < 2 || game.classified.has(ply)) return;
+    const evalBefore = game.evals.get(ply - 1);
+    const evalAfter = game.evals.get(ply);
+    if (evalBefore === undefined || evalAfter === undefined) return;
+
+    game.classified.add(ply);
+    const mover = moverOf(ply);
+    // Feedback is private: only the player who made the move hears it.
+    hub.sendToUser(mover === 'white' ? game.whiteUserId : game.blackUserId, {
+        type: 'move.evaluated',
+        ply,
+        classification: classify(cpLoss({ evalBefore, evalAfter, mover })),
+    });
 }
 
 
