@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends cmake \
 WORKDIR /src
 COPY cpp/ ./cpp/
 RUN cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build build --parallel
+    && cmake --build build --parallel --target chesswhisper_engine
 
 
 # ---- runtime stage: Node facade + the compiled binary beside it ----
@@ -22,3 +22,5 @@ RUN npm ci --omit=dev
 COPY facade/ ./
 COPY --from=build /src/build/chesswhisper_engine ./engine/chesswhisper_engine
 CMD ["node", "src/index.js"]
+
+
