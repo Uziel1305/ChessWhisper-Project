@@ -4,6 +4,7 @@ const pool = require('../src/db/pool');
 const hub = require('../src/ws/hub');
 const engineClient = require('../src/engine/engineClient');
 const GameManager = require('../src/game/GameManager');
+const feedbackRepo = require('../src/db/repositories/feedback.repo');
 
 // The engine is mocked: every evaluate() call hands back a promise the test
 // resolves by hand, so it controls both *what* the engine says and *when* — which
@@ -236,6 +237,98 @@ describe('engine evaluation in the move pipeline', () => {
 
             expect(evalCalls).toBe(4);
             expect(engineClient.evaluate.mock.calls.length).toBe(4);
+        });
+    });
+
+    describe('feedback persistence', () => {
+        // Same shape as the socket-routing EVALS above, kept local so this
+        // describe reads on its own: ply2/ply3 lose nothing, ply4 is a
+        // 280-centipawn blunder.
+        const EVALS = [30, 20, 120, 400];
+
+        // The insert is fire-and-forget (GameManager never awaits it), and it's a
+        // real Postgres round trip here — unlike the mocked engine, there is no
+        // hook to await directly. One process tick is not enough time for it to
+        // land, so this polls for the row count the caller expects instead of
+        // guessing a fixed delay.
+        async function waitForFeedbackRows(gameId, minLength, timeoutMs = 2000) {
+            const query = () => pool.query(
+                'SELECT ply, owner_user_id, classification, cp_loss FROM feedback WHERE game_id = $1 ORDER BY ply',
+                [gameId]
+            ).then((result) => result.rows);
+
+            const deadline = Date.now() + timeoutMs;
+            let rows = await query();
+            while (rows.length < minLength && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                rows = await query();
+            }
+            // Returned either way — a short result here fails the assertion that
+            // follows with the actual rows, which is more useful than a timeout.
+            return rows;
+        }
+
+        it('writes a feedback row for the mover with the classification and cpLoss it sent', async () => {
+            const game = await newGame('feedback');
+            await play(game, FOUR_PLIES);
+            for (let i = 0; i < EVALS.length; i++) await answer(i + 1, EVALS[i]);
+
+            const rows = await waitForFeedbackRows(game.id, 3);
+
+            expect(rows).toHaveLength(3);
+            expect(rows.map((r) => ({ ...r, owner_user_id: String(r.owner_user_id) }))).toEqual([
+                { ply: 2, owner_user_id: String(game.blackUserId), classification: 'best', cp_loss: 0 },
+                { ply: 3, owner_user_id: String(game.whiteUserId), classification: 'best', cp_loss: 0 },
+                { ply: 4, owner_user_id: String(game.blackUserId), classification: 'blunder', cp_loss: 280 },
+            ]);
+        });
+
+        it('findByGame returns only the requesting owner\'s rows, never the other player\'s', async () => {
+            const game = await newGame('feedback');
+            await play(game, FOUR_PLIES);
+            for (let i = 0; i < EVALS.length; i++) await answer(i + 1, EVALS[i]);
+            await waitForFeedbackRows(game.id, 3);
+
+            const whiteRows = await feedbackRepo.findByGame({ gameId: game.id, ownerUserId: game.whiteUserId });
+            const blackRows = await feedbackRepo.findByGame({ gameId: game.id, ownerUserId: game.blackUserId });
+
+            expect(whiteRows.map((r) => r.ply)).toEqual([3]);
+            expect(blackRows.map((r) => r.ply)).toEqual([2, 4]);
+        });
+
+        it('rejects a second row for a ply that already has one', async () => {
+            const game = await newGame('feedback');
+            await play(game, FOUR_PLIES);
+            await answer(1, 30);
+            await answer(2, 180); // writes ply 2 for real
+            await waitForFeedbackRows(game.id, 1);
+
+            // The unique constraint is what's under test here, not app logic —
+            // 004_feedback.sql's UNIQUE (game_id, ply), the same way moves.repo
+            // relies on its own table's constraint rather than checking first.
+            await expect(feedbackRepo.insert({
+                gameId: game.id, ply: 2, ownerUserId: game.blackUserId,
+                classification: 'good', cpLoss: 10,
+            })).rejects.toThrow();
+        });
+
+        it('still sends the verdict when the write fails, and logs it once', async () => {
+            jest.spyOn(feedbackRepo, 'insert').mockRejectedValueOnce(new Error('db down'));
+            jest.spyOn(console, 'error').mockImplementation(() => {});
+            const game = await newGame('feedback');
+            await play(game, ['e2e4', 'e7e5']);
+
+            await answer(1, 30);
+            await answer(2, 180);
+            await new Promise((resolve) => setImmediate(resolve));
+
+            expect(feedbackEvents()).toEqual([
+                [String(game.blackUserId), { type: 'move.feedback', ply: 2, classification: 'mistake', cpLoss: 150 }],
+            ]);
+            expect(console.error).toHaveBeenCalledTimes(1);
+
+            const rows = (await pool.query('SELECT 1 FROM feedback WHERE game_id = $1', [game.id])).rows;
+            expect(rows).toHaveLength(0);
         });
     });
 

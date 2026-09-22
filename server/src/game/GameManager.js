@@ -3,6 +3,7 @@ const gamesRepo = require('../db/repositories/games.repo');
 const movesRepo = require('../db/repositories/moves.repo');
 const usersRepo = require('../db/repositories/users.repo');
 const ratingsRepo = require('../db/repositories/ratings.repo');
+const feedbackRepo = require('../db/repositories/feedback.repo');
 const elo = require('../rating/elo');
 const Game = require('./Game');
 const Clock = require('./clock');
@@ -321,12 +322,22 @@ function classifyPly(game, ply, moverUserId) {
     // there, never re-derived here. Feedback is private: only the player who
     // made the move hears it.
     const loss = cpLoss({ evalBefore, evalAfter, mover: moverOf(ply) });
+    const classification = classify(loss);
     hub.sendToUser(moverUserId, {
         type: 'move.feedback',
         ply,
-        classification: classify(loss),
+        classification,
         cpLoss: loss,
     });
+
+    // Not awaited: the verdict has already been sent, and a slow or failed
+    // write must never delay or drop it — the same reasoning evaluatePly
+    // already applies to the engine call itself.
+    feedbackRepo
+        .insert({ gameId: game.id, ply, ownerUserId: moverUserId, classification, cpLoss: loss })
+        .catch((err) => {
+            console.error('feedback insert failed for ply', ply, 'of game', game.id, ':', err);
+        });
 }
 
 
