@@ -46,6 +46,7 @@ function matchFound(game, color, opponent) {
         type: 'match.found',
         gameId: game.id,
         color,
+        mode: game.mode,
         opponent: { username: opponent.username, rating: opponent.rating },
         fen: game.position.fen(),
         legalMoves: game.position.legalMoves(),
@@ -221,7 +222,7 @@ async function applyMove({ gameId, userId, uci }) {
     // game ends. Not awaited, and its promise is not returned: move.committed
     // has already gone out, and nothing after this line may wait on the engine.
     if (EVALUATED_MODES.has(game.mode)) {
-        evaluatePly(game, ply, fen);
+        evaluatePly(game, ply, fen, mover);
     }
 
     // After move.committed, never before: the clients need the final position
@@ -247,14 +248,18 @@ function moverOf(ply) {
 // a game the answer arrives after the lookup would already fail — and it should
 // still be stored and sent (sendToUser is a no-op for a socket that is gone).
 //
+// moverUserId is applyMove's `mover`, captured there synchronously at commit
+// time — never re-derived from game state once this resolves, since by then the
+// turn may already belong to the opponent.
+//
 // async, so the engineClient call runs synchronously up to its first await and
 // every failure lands in the catch below; an unhandled rejection here would
 // otherwise take down the process over a missing evaluation.
-async function evaluatePly(game, ply, fen) {
+async function evaluatePly(game, ply, fen, moverUserId) {
     try {
         const cp = await engineClient.evaluate(fen);
         game.evals.set(ply, cp);
-        publishEvaluation(game, ply);
+        publishEvaluation(game, ply, moverUserId);
     } catch (err) {
         // A failed evaluation is a gap, not an error the game can act on: the
         // move is committed and delivered either way. That ply, and the one
@@ -267,7 +272,7 @@ async function evaluatePly(game, ply, fen) {
 // not on what has been computed: a player holding an assist their opponent lacks
 // has an unfair advantage (CLAUDE.md, `mode`), so an eval game never carries a
 // verdict and a feedback game never carries the bar value.
-function publishEvaluation(game, ply) {
+function publishEvaluation(game, ply, moverUserId) {
     const hub = require('../ws/hub');
 
     if (game.mode === 'eval') {
@@ -280,18 +285,28 @@ function publishEvaluation(game, ply) {
 
     if (game.mode === 'feedback') {
         // Results arrive in any order. This ply's answer can be the missing half
-        // of its own verdict (with ply - 1) or of the next one's (with ply + 1),
-        // so both are tried; classifyPly does nothing until both halves exist.
-        classifyPly(game, ply);
-        classifyPly(game, ply + 1);
+        // of its own verdict (with ply - 1, mover moverUserId) or of the next
+        // one's (with ply + 1, mover the *other* participant — chess alternates,
+        // and a game only ever has these two), so both are tried; classifyPly
+        // does nothing until both halves exist.
+        classifyPly(game, ply, moverUserId);
+        classifyPly(game, ply + 1, opponentOf(game, moverUserId));
     }
+}
+
+// The other of a game's two fixed participants. Used only to name who played
+// the *next* ply given who played this one — never to guess whose turn it is
+// right now, which is a different question this file is careful not to ask
+// asynchronously (see evaluatePly's comment).
+function opponentOf(game, userId) {
+    return String(userId) === String(game.whiteUserId) ? game.blackUserId : game.whiteUserId;
 }
 
 // A move's verdict needs the evaluation before it and after it. Ply 1 never has
 // a "before" — no evaluation exists for the start position, and asking for one
 // would be an engine call belonging to no committed half-move — so white's first
 // move is never classified.
-function classifyPly(game, ply) {
+function classifyPly(game, ply, moverUserId) {
     const hub = require('../ws/hub');
 
     if (ply < 2 || game.classified.has(ply)) return;
@@ -300,12 +315,17 @@ function classifyPly(game, ply) {
     if (evalBefore === undefined || evalAfter === undefined) return;
 
     game.classified.add(ply);
-    const mover = moverOf(ply);
-    // Feedback is private: only the player who made the move hears it.
-    hub.sendToUser(mover === 'white' ? game.whiteUserId : game.blackUserId, {
-        type: 'move.evaluated',
+    // moverOf(ply) is ply's colour, needed only for cpLoss's white/black-
+    // perspective math — a different question from who to send to. That's
+    // moverUserId, captured at this move's own commit and threaded down from
+    // there, never re-derived here. Feedback is private: only the player who
+    // made the move hears it.
+    const loss = cpLoss({ evalBefore, evalAfter, mover: moverOf(ply) });
+    hub.sendToUser(moverUserId, {
+        type: 'move.feedback',
         ply,
-        classification: classify(cpLoss({ evalBefore, evalAfter, mover })),
+        classification: classify(loss),
+        cpLoss: loss,
     });
 }
 

@@ -84,6 +84,16 @@ function evaluatedEvents() {
         .map(([userId, event]) => [String(userId), event]);
 }
 
+// Same shape as evaluatedEvents(), but for the feedback pipeline's own event
+// type — CW-147 split move.evaluated into move.feedback (mover only, carries
+// cpLoss) and eval.update (both players; still move.evaluated until CW-152
+// renames it), so the two are no longer one overloaded type.
+function feedbackEvents() {
+    return sent
+        .filter(([, event]) => event.type === 'move.feedback')
+        .map(([userId, event]) => [String(userId), event]);
+}
+
 describe('engine evaluation in the move pipeline', () => {
     beforeEach(() => {
         sent = [];
@@ -205,11 +215,13 @@ describe('engine evaluation in the move pipeline', () => {
             await play(game, FOUR_PLIES);
             for (let i = 0; i < EVALS.length; i++) await answer(i + 1, EVALS[i]);
 
-            // Ply 1 has no verdict, so three events, one recipient each.
-            expect(evaluatedEvents()).toEqual([
-                [String(game.blackUserId), { type: 'move.evaluated', ply: 2, classification: 'best' }],
-                [String(game.whiteUserId), { type: 'move.evaluated', ply: 3, classification: 'best' }],
-                [String(game.blackUserId), { type: 'move.evaluated', ply: 4, classification: 'blunder' }],
+            // Ply 1 has no verdict, so three events, one recipient each. cpLoss
+            // per the comment above: ply2 and ply3 both improved (loss clamped
+            // to 0), ply4 lost 280.
+            expect(feedbackEvents()).toEqual([
+                [String(game.blackUserId), { type: 'move.feedback', ply: 2, classification: 'best', cpLoss: 0 }],
+                [String(game.whiteUserId), { type: 'move.feedback', ply: 3, classification: 'best', cpLoss: 0 }],
+                [String(game.blackUserId), { type: 'move.feedback', ply: 4, classification: 'blunder', cpLoss: 280 }],
             ]);
         });
 
@@ -252,8 +264,8 @@ describe('engine evaluation in the move pipeline', () => {
             await answer(1, 30);
             await answer(2, 180); // black lost 150 -> mistake
 
-            expect(evaluatedEvents()).toEqual([
-                [String(game.blackUserId), { type: 'move.evaluated', ply: 2, classification: 'mistake' }],
+            expect(feedbackEvents()).toEqual([
+                [String(game.blackUserId), { type: 'move.feedback', ply: 2, classification: 'mistake', cpLoss: 150 }],
             ]);
         });
     });
@@ -273,9 +285,9 @@ describe('engine evaluation in the move pipeline', () => {
 
             // Ply 2: black, 30 -> 200 = lost 170 = mistake.
             // Ply 3: white, 200 -> 150 = lost 50 = good.
-            expect(evaluatedEvents()).toEqual([
-                [String(game.blackUserId), { type: 'move.evaluated', ply: 2, classification: 'mistake' }],
-                [String(game.whiteUserId), { type: 'move.evaluated', ply: 3, classification: 'good' }],
+            expect(feedbackEvents()).toEqual([
+                [String(game.blackUserId), { type: 'move.feedback', ply: 2, classification: 'mistake', cpLoss: 170 }],
+                [String(game.whiteUserId), { type: 'move.feedback', ply: 3, classification: 'good', cpLoss: 50 }],
             ]);
         });
 
@@ -289,7 +301,7 @@ describe('engine evaluation in the move pipeline', () => {
             await answer(3, 100);
             await answer(1, 100);
 
-            const plies = evaluatedEvents().map(([, e]) => e.ply).sort();
+            const plies = feedbackEvents().map(([, e]) => e.ply).sort();
             expect(plies).toEqual([2, 3, 4]);
         });
 
@@ -391,8 +403,8 @@ describe('engine evaluation in the move pipeline', () => {
             await new Promise((resolve) => setImmediate(resolve));
 
             // Ply 4: black, 100 -> 400 = lost 300 = blunder.
-            expect(evaluatedEvents()).toEqual([
-                [String(game.blackUserId), { type: 'move.evaluated', ply: 4, classification: 'blunder' }],
+            expect(feedbackEvents()).toEqual([
+                [String(game.blackUserId), { type: 'move.feedback', ply: 4, classification: 'blunder', cpLoss: 300 }],
             ]);
             expect(console.error).toHaveBeenCalledTimes(1);
         });
@@ -427,11 +439,11 @@ describe('engine evaluation in the move pipeline', () => {
             await answer(3, 100);
             await answer(4, -10000);
 
-            expect(evaluatedEvents()).toEqual([
-                [String(game.blackUserId), { type: 'move.evaluated', ply: 4, classification: 'best' }],
+            expect(feedbackEvents()).toEqual([
+                [String(game.blackUserId), { type: 'move.feedback', ply: 4, classification: 'best', cpLoss: 0 }],
             ]);
             const order = sent.map(([, event]) => event.type);
-            expect(order.lastIndexOf('move.evaluated')).toBeGreaterThan(order.lastIndexOf('game.end'));
+            expect(order.lastIndexOf('move.feedback')).toBeGreaterThan(order.lastIndexOf('game.end'));
         });
     });
 });
