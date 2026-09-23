@@ -4,6 +4,7 @@ import com.example.chesswhisper.BuildConfig;
 import com.example.chesswhisper.data.game.model.GameEnd;
 import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.game.model.MoveCommitted;
+import com.example.chesswhisper.data.game.model.MoveFeedback;
 import com.example.chesswhisper.data.network.ApiClient;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -31,6 +32,7 @@ public final class GameSocket {
 
     public interface GameListener {
         void onMoveCommitted(MoveCommitted event);
+        void onMoveFeedback(MoveFeedback event);
         void onGameEnd(GameEnd event);
         void onFailure(Throwable t);
     }
@@ -55,7 +57,7 @@ public final class GameSocket {
         return instance;
     }
 
-    public void connectAndJoinQueue(MatchListener listener) {
+    public void connectAndJoinQueue(String mode, MatchListener listener) {
         this.matchListener = listener;
 
         // BASE_URL is "http://host:port/" — same host, ws:// scheme, /ws path.
@@ -69,7 +71,7 @@ public final class GameSocket {
             public void onOpen(WebSocket ws, Response response) {
                 JsonObject join = new JsonObject();
                 join.addProperty("type", "queue.join");
-                join.addProperty("mode", "classic");
+                join.addProperty("mode", mode);
                 join.addProperty("timeControl", 600000);
                 ws.send(join.toString());
             }
@@ -101,6 +103,11 @@ public final class GameSocket {
                     case "move.committed":
                         if (gameListener != null) {
                             gameListener.onMoveCommitted(new Gson().fromJson(json, MoveCommitted.class));
+                        }
+                        break;
+                    case "move.feedback":
+                        if (gameListener != null) {
+                            gameListener.onMoveFeedback(new Gson().fromJson(json, MoveFeedback.class));
                         }
                         break;
                     case "game.end":
