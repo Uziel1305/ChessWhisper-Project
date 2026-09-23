@@ -1,11 +1,10 @@
 const http = require('http');
-const { evaluate } = require('./uci');
+const { evaluate } = require('./pool');
 
-// TEMPORARY: a minimal single-endpoint facade so the game server has something
-// to call (CW-139). It spawns one engine process per request, with no pool, no
-// queue and no concurrency cap — it will not hold the >=100-game target. It is
-// replaced wholesale by the real facade (pool.js); nothing here is meant to
-// grow.
+// A minimal single-endpoint facade so the game server has something to call
+// (CW-139). Process management (spawning, the UCI handshake, reuse, queueing,
+// timeout/crash recovery) lives in pool.js — this file is just the HTTP
+// contract on top of it, and stays this small on purpose.
 //
 //   POST /evaluate  {fen, budgetMs}  ->  {cp}
 //
@@ -61,6 +60,14 @@ const server = http.createServer((req, res) => {
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`engine facade listening on port ${PORT}`);
-});
+// Only binds a real port when this file is actually run (`node src/index.js`
+// — exactly what the Dockerfile's CMD does), not when a test requires it to
+// get the server object and bind its own, disposable one. Same reason
+// server/src/app.js and server/src/index.js are split there.
+if (require.main === module) {
+    server.listen(PORT, () => {
+        console.log(`engine facade listening on port ${PORT}`);
+    });
+}
+
+module.exports = { server };
