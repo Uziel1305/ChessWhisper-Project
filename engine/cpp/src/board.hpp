@@ -17,7 +17,9 @@
 
 using Move = chess::Move;
 using MoveList = chess::Movelist;
-
+using PieceType = chess::PieceType;
+using Color = chess::Color;
+using Piece = chess::Piece;
 
 class Position {
 public:
@@ -46,8 +48,20 @@ public:
     // the captured piece out of it to restore state.
     void unmakeMove(Move m) { board_.unmakeMove(m); }
 
-    bool inCheck() const { return board_.inCheck(); }
-    bool whiteToMove() const { return board_.sideToMove() == chess::Color::WHITE; }
+    bool inCheck() const { 
+        return board_.inCheck(); 
+    }
+    bool whiteToMove() const { 
+        return board_.sideToMove() == chess::Color::WHITE; 
+    }
+    // Piece counts, for material evaluation.
+    int count(PieceType pt, Color c) const { 
+        return board_.pieces(pt, c).count(); 
+    }
+    // The piece on a square, for evaluations that need square information.
+    Piece pieceAt(int sq) const { 
+        return board_.at(sq); 
+    }
 
 private:
     chess::Board board_;

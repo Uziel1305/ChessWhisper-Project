@@ -15,6 +15,7 @@ endif()
 # list or the include paths. eval.cpp and search.cpp join this at CW-82.
 add_library(engine_core STATIC
     src/board.cpp
+    src/eval.cpp
 )
 target_include_directories(engine_core PUBLIC third_party src)
 
