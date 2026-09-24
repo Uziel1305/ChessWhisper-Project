@@ -21,6 +21,11 @@ int main(){
     // binary can be run at several depths from a fastchess config without a
     // rebuild — the same reason the evaluator is an option.
     int depth = 4;
+    // The search's feature toggles. Held here, next to the evaluator, because
+    // both are "what the engine is configured as" and both are set by
+    // setoption — depth stays separate because it is what a single search was
+    // asked for, not what the engine is.
+    SearchConfig config;
     while (getline(cin,line)){
         istringstream iss(line);
         string token;
@@ -35,6 +40,7 @@ int main(){
             // variants get added here as evaluators land.
             cout<<"option name Eval type combo default material var material\n";
             cout<<"option name Depth type spin default 4 min 1 max "<<MAX_PLY<<"\n";
+            cout<<"option name AlphaBeta type check default true\n";
             cout << "uciok\n";
             cout.flush();
         } else if (token == "setoption") {
@@ -64,6 +70,13 @@ int main(){
                 }else {
                     std::cerr << "bad Depth value: " << value << "\n";
                 }
+            } else if (name == "AlphaBeta") {
+                // A check option's value is exactly "true" or "false". Anything
+                // else is a hand-typed mistake, and silently treating it as
+                // false would mean an unexplained 10x slowdown.
+                if (value == "true") config.alphaBeta = true;
+                else if (value == "false") config.alphaBeta = false;
+                else std::cerr << "bad AlphaBeta value: " << value << "\n";
             } else {
                 std::cerr << "unknown option: " << name << "\n";
             }
@@ -136,10 +149,15 @@ int main(){
             // A fresh Searcher per go. It owns the node counter, and CW-119
             // gives it a deadline; nothing survives between searches yet, so
             // there is nothing worth reusing.
-            Searcher searcher(*evaluator);
+            Searcher searcher(*evaluator, config);
             const SearchResult r = searcher.search(pos, goDepth);
 
-            std::cout << "info string eval " << evaluator->name() << "\n";
+            // The whole live configuration on one line, so a setoption that
+            // never applied is visible in a log rather than showing up as an
+            // unexplained strength or speed difference.
+            std::cout << "info string eval " << evaluator->name()
+                      << " alphabeta " << (config.alphaBeta ? "true" : "false")
+                      << "\n";
 
             std::cout << "info depth " << goDepth;
             if (isMateScore(r.score)) {

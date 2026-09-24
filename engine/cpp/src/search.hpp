@@ -39,6 +39,18 @@ inline int mateInMoves(int score) {
     const int moves = (plies + 1) / 2;
     return score > 0 ? moves : -moves;
 }
+// Search features are toggles on one searcher rather than subclasses, because
+// they compose: alpha-beta, quiescence (CW-120) and move ordering (CW-121) are
+// layers on the same recursion, not alternatives to it. Named fields rather
+// than positional bools, so adding the next one cannot silently swap two
+// arguments at a call site.
+struct SearchConfig {
+    // Off gives back the unpruned negamax of CW-117 — identical root score,
+    // identical best move, an order of magnitude more nodes. That is the
+    // reference the pruned search is verified against, which is why it stays
+    // reachable at runtime.
+    bool alphaBeta = true;
+};
 
 struct SearchResult {
     // NO_MOVE when the position has no legal move at all — checkmate or
@@ -52,7 +64,8 @@ struct SearchResult {
 // implementation it is.
 class Searcher {
 public:
-    Searcher(const Evaluator& eval) : eval_(eval) {}
+    Searcher(const Evaluator& eval, SearchConfig cfg = {})
+        : eval_(eval), cfg_(cfg) {}
 
     // pos is non-const because the search makes and unmakes moves on it. It is
     // left exactly as it was found — every makeMove has a matching unmakeMove
@@ -60,8 +73,14 @@ public:
     SearchResult search(Position& pos, int depth);
 
 private:
-    int negamax(Position& pos, int depth, int ply);
-    
+    // alpha is the score the side to move is already guaranteed somewhere else
+    // in the tree; beta is the score at which the opponent, one ply up, would
+    // never have allowed this position in the first place. A node whose score
+    // reaches beta can stop immediately — its exact value can no longer change
+    // any decision above it.
+    int negamax(Position& pos, int depth, int ply, int alpha, int beta);
+
     const Evaluator& eval_;
+    SearchConfig cfg_;
     long long nodes_ = 0;
 };

@@ -1,21 +1,17 @@
 #include "search.hpp"
 
-// Plain negamax: every node expands every legal move, with no pruning of any
-// kind. That is the point of this version rather than a shortcoming of it —
-// CW-118's alpha-beta has to reproduce these scores exactly while visiting far
-// fewer nodes, and there is nothing to check it against unless one unpruned
-// search exists.
-int Searcher::negamax(Position& pos, int depth, int ply) {
+// Negamax with an alpha-beta window. alpha/beta are from the point of view of
+// the side to move at THIS node, which is why the recursive call both negates
+// and swaps them: this node's floor is the child's ceiling.
+int Searcher::negamax(Position& pos, int depth, int ply, int alpha, int beta) {
     ++nodes_;
 
     MoveList moves;
     pos.legalMoves(moves);
 
-    // Terminality is tested BEFORE the depth cutoff, and that ordering is the
-    // entire reason mate detection works: at depth 0 the position may already
-    // be checkmate, and returning a material score there would hide it behind
-    // whatever pieces happen to be on the board. The cost is one move
-    // generation at every leaf, paid deliberately.
+    // Still tested before the depth cutoff, for the same reason as CW-117: a
+    // checkmate sitting at the horizon must score as mate, not as material.
+
     if (moves.empty()) {
         // Mated at this ply, or stalemate. -MATE_SCORE + ply rather than a flat
         // -MATE_SCORE, so a mate that arrives sooner scores higher than one
@@ -35,9 +31,24 @@ int Searcher::negamax(Position& pos, int depth, int ply) {
         pos.makeMove(m);
         // Negated: the child returns a score from the opponent's point of view,
         // and this node wants its own.
-        const int score = -negamax(pos, depth - 1, ply + 1);
+        const int score = -negamax(pos, depth - 1, ply + 1,-beta, -alpha);
         pos.unmakeMove(m);
         if (score > best) best = score;
+
+        // With the toggle off, alpha never rises and the cutoff never fires, so
+        // every child gets the full window and the node count is CW-117's
+        // exactly. The test is constant for the whole search, so it is a
+        // perfectly-predicted branch per move — the same argument that makes the
+        // Evaluator's virtual call free.
+        if (!cfg_.alphaBeta) continue;
+
+        if (best > alpha) alpha = best;
+
+        // Beta cutoff. The opponent, one ply up, already has a line at least as
+        // good as beta, so they would never let this position happen. Whatever
+        // this node's exact score turns out to be, it cannot change a decision
+        // above it — so stop looking.
+        if (alpha >= beta) break;
     }
     return best;
 }
@@ -54,19 +65,22 @@ SearchResult Searcher::search(Position& pos, int depth) {
     MoveList moves;
     pos.legalMoves(moves);
 
-    // The root loop is written out separately instead of reusing negamax,
-    // because only the root needs to remember WHICH move produced the best
-    // score. negamax returns a number and nothing else.
+    // The root's window starts wide open. alpha rises as better moves are found,
+    // which is what narrows the windows the children are searched with — the
+    // root itself never cuts, because there is no parent that could have
+    // avoided this position.
     int best = -INF_SCORE;
+    int alpha = -INF_SCORE;
     for (int i = 0; i < moves.size(); ++i) {
         const Move m = moves[i];
         pos.makeMove(m);
-        const int score = -negamax(pos, depth - 1, 1);
+        const int score = -negamax(pos, depth - 1, 1,-INF_SCORE, -alpha);
         pos.unmakeMove(m);
         if (score > best) {
             best = score;
             result.best = m;
         }
+         if (cfg_.alphaBeta && best > alpha) alpha = best;
     }
 
     // best is untouched only when the loop never ran — no legal move, so
