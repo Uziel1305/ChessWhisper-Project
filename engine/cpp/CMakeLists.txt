@@ -11,11 +11,11 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_link_options(-fsanitize=address,undefined)
 endif()
 
-# Shared by the engine binary and the tests so neither duplicates the source
-# list or the include paths. eval.cpp and search.cpp join this at CW-82.
+
 add_library(engine_core STATIC
     src/board.cpp
     src/eval.cpp
+    src/search.cpp
 )
 target_include_directories(engine_core PUBLIC third_party src)
 
