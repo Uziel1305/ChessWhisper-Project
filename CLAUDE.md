@@ -382,3 +382,49 @@ A move's verdict comes from its centipawn loss, against these fixed thresholds:
   centipawns under Stockfish and under the custom engine. CW-83's benchmark is where that
   is checked — known blunders and known good moves must get matching classifications from
   both — and is the one place these numbers may be revisited.
+
+### The engine is built to compare evaluations and searches (decided September 2026)
+
+The C++ engine is not one engine but a platform for several. Evaluation is an interface,
+search features are independently switchable, and every combination is reachable from one
+binary — so the contribution of each piece can be *measured* in fastchess rather than
+asserted:
+
+- **`Evaluator` is an abstract base class**; `MaterialEvaluator` and `PstEvaluator`
+  implement it, and search takes a `const Evaluator&` chosen once before it starts. Search
+  never learns which implementation it holds.
+- **The reason it is an interface rather than a switch inside one `evaluate()` is the
+  search signature**, not extensibility in the abstract. Adding an evaluator this way is a
+  new subclass plus a line in `makeEvaluator`. With a free `evaluate(pos)` and a global
+  selector, injecting one later would mean changing every search function and threading it
+  down through the recursion — the one boundary that is genuinely expensive to move.
+- **Virtual dispatch per leaf is not a concern here.** It is an indirect branch whose
+  target never changes within a search, so it predicts perfectly; ~1-2ns against an
+  evaluation of a few hundred. Stockfish avoids it because at 100M nodes/sec that becomes
+  10% of wall clock — three orders of magnitude from where this engine operates.
+- **Configurations are selected by UCI options on a single binary**, not by separate
+  executables. Four evaluators against three independent search toggles is 32
+  combinations; as binaries that is 32 CMake targets, of which Docker ships one and the
+  other 31 exist only for experiments. As options it is 32 lines in a fastchess config,
+  and that config file becomes the experiment record for the report.
+- **Every option must be declared in the `uci` response.** GUIs reject options an engine
+  never advertised, which is what turns a typo in a fastchess config into a startup error
+  instead of a tournament quietly comparing an engine against itself. Each search also
+  emits `info string eval <name>`, so the live configuration is in the logs.
+- **`MaterialEvaluator` uses the piece bitboards (`count`) while `PstEvaluator` walks the
+  64 squares (`pieceAt`)** — deliberately two implementations, not an oversight. The cheap
+  evaluator's speed advantage is part of what is being measured: at equal time it converts
+  saved work into extra depth, which is a real engine-design tradeoff rather than a
+  confound to control for. The shared piece-value constants in `eval.cpp` are the contract
+  that keeps the two consistent.
+- **For ML evaluators later** (trained in Python, weights exported, inference written in
+  C++): a new subclass owning its weights as constructor state, plus a string option for
+  the weights path — the same shape Stockfish uses for `EvalFile`. Nothing in search
+  changes. Not scheduled; the architecture just leaves the path clear.
+- **Known limit of this interface:** it assumes evaluation is a pure function of the
+  position. That fits a model evaluated at each leaf. It does *not* fit NNUE-style
+  incremental evaluation, where an accumulator is updated inside make/unmake — that needs
+  hooks into the move functions and a different interface shape. Accepted deliberately.
+- Rejected alternative: a global `setEvaluator()` with a free `evaluate(pos)`. Simpler
+  while there were two pure functions, but it is hidden mutable state, it makes evaluators
+  awkward to construct in tests, and it postpones the one refactor that is costly.
