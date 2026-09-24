@@ -7,4 +7,14 @@
     <color name="board_dark_square">#FFB58863</color>
     <color name="board_selected_square">#80F7EC59</color>
     <color name="board_legal_target">#802E7D32</color>
+
+    <!-- CW-149's feedback panel: one colour per classification, best to worst.
+         An unrecognised classification (CLAUDE.md: the vocabulary may grow)
+         falls back to feedback_neutral rather than crashing on an unmapped one. -->
+    <color name="feedback_best">#FF2E7D32</color>
+    <color name="feedback_good">#FF558B2F</color>
+    <color name="feedback_inaccuracy">#FFF9A825</color>
+    <color name="feedback_mistake">#FFEF6C00</color>
+    <color name="feedback_blunder">#FFC62828</color>
+    <color name="feedback_neutral">#FF616161</color>
 </resources>

@@ -9,6 +9,11 @@ import java.util.List;
 public class MatchFound implements Serializable {
     public String gameId;
     public String color;
+    // classic/eval/feedback/retraction — which assist features this game has.
+    // GameActivity reads it once, at match.found, to decide which of the
+    // eval bar / feedback panel (if either) to show; see CLAUDE.md's `mode`
+    // decision. No enum yet — CW-155's picker is what introduces one.
+    public String mode;
     public Opponent opponent;
     public String fen;
     public List<String> legalMoves;

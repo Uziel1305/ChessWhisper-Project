@@ -84,9 +84,13 @@ public class HomeViewModel extends ViewModel {
         return matchmaking;
     }
 
-    public void play() {
+    // mode travels in as a parameter rather than a literal, per CLAUDE.md's
+    // "never a literal" convention for queue.join fields — the same reasoning
+    // clock.js's constructor argument already follows for timeControl. Real
+    // callers pass "classic" until CW-155 adds a picker on this screen.
+    public void play(String mode) {
         matchmaking.setValue(new MatchmakingState(MatchmakingStatus.CONNECTING, null, null));
-        GameSocket.getInstance().connectAndJoinQueue(new GameSocket.MatchListener() {
+        GameSocket.getInstance().connectAndJoinQueue(mode, new GameSocket.MatchListener() {
             @Override
             public void onMatchFound(MatchFound matchFound) {
                 // postValue: this listener runs on OkHttp's thread, not the main thread.

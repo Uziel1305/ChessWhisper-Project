@@ -108,6 +108,10 @@ describe('matchmaking queue', () => {
         expect(eventB.type).toBe('match.found');
         // One game, not two that happen to look alike.
         expect(eventA.gameId).toBe(eventB.gameId);
+        // CW-147: match.found carries the mode the game was created with —
+        // Android needs it to pick which UI (bar/panel/neither) to show.
+        expect(eventA.mode).toBe('classic');
+        expect(eventB.mode).toBe('classic');
         //check has legal moves
         expect(eventA.legalMoves).toContain('e2e4');
         expect(eventA.legalMoves).toHaveLength(20);

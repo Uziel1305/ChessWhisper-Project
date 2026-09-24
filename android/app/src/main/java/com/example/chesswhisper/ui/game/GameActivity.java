@@ -19,6 +19,7 @@ import com.example.chesswhisper.data.game.GameSocket;
 import com.example.chesswhisper.data.game.model.GameEnd;
 import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.game.model.MoveCommitted;
+import com.example.chesswhisper.data.game.model.MoveFeedback;
 import com.example.chesswhisper.ui.home.HomeActivity;
 
 import java.util.List;
@@ -44,7 +45,14 @@ public class GameActivity extends AppCompatActivity {
     private TextView opponentRatingText;
     private TextView opponentClockText;
     private TextView myClockText;
+    private TextView feedbackVerdictText;
+    private TextView feedbackLossText;
     private Button resignButton;
+    // Guards against an out-of-order move.feedback (the engine answers async,
+    // so a later ply's verdict can arrive before an earlier one's — see
+    // evaluation.test.js's out-of-order cases) overwriting an already-shown
+    // later verdict with a stale one. 0 means "nothing applied yet".
+    private int lastAppliedFeedbackPly = 0;
     private String gameId;
     private String myColor;
     // True once game.end has arrived — tells the Back-button handler apart a
@@ -81,6 +89,8 @@ public class GameActivity extends AppCompatActivity {
         opponentRatingText = findViewById(R.id.opponentRatingText);
         opponentClockText = findViewById(R.id.opponentClockText);
         myClockText = findViewById(R.id.myClockText);
+        feedbackVerdictText = findViewById(R.id.feedbackVerdictText);
+        feedbackLossText = findViewById(R.id.feedbackLossText);
         resignButton = findViewById(R.id.resignButton);
         resignButton.setOnClickListener(v -> confirmResign());
 
@@ -117,10 +127,25 @@ public class GameActivity extends AppCompatActivity {
             if (matchFound.clocks != null) {
                 startClocks(matchFound);
             }
+            // Only a feedback game ever shows this panel, and only once the
+            // mode is actually known — the views stay GONE (no placeholder,
+            // no layout space) for every other mode, including the no-
+            // MatchFound manual-launch path where mode is never read at all.
+            if ("feedback".equals(matchFound.mode)) {
+                feedbackVerdictText.setVisibility(View.VISIBLE);
+                feedbackLossText.setVisibility(View.VISIBLE);
+                feedbackVerdictText.setText(R.string.feedback_placeholder);
+                feedbackVerdictText.setTextColor(getColor(R.color.feedback_neutral));
+            }
             GameSocket.getInstance().setGameListener(new GameSocket.GameListener() {
                 @Override
                 public void onMoveCommitted(MoveCommitted event) {
                     runOnUiThread(() -> handleMoveCommitted(event));
+                }
+
+                @Override
+                public void onMoveFeedback(MoveFeedback event) {
+                    runOnUiThread(() -> handleMoveFeedback(event));
                 }
 
                 @Override
@@ -181,6 +206,66 @@ public class GameActivity extends AppCompatActivity {
             tickStartedAtElapsedRealtime = SystemClock.elapsedRealtime();
             updateClockDisplay();
         }
+    }
+
+    private void handleMoveFeedback(MoveFeedback event) {
+        // See lastAppliedFeedbackPly's own comment: a strictly-increasing ply
+        // is what stops a late, earlier-move verdict from overwriting a
+        // later one already on screen.
+        if (event.ply <= lastAppliedFeedbackPly) {
+            return;
+        }
+        lastAppliedFeedbackPly = event.ply;
+        applyClassification(event.classification);
+        feedbackLossText.setText(formatCpLoss(event.cpLoss));
+    }
+
+    // classification is server vocabulary that may grow (CLAUDE.md's `mode`
+    // and classification-threshold decisions both call this out) — anything
+    // not in this list still renders, raw and in a neutral colour, rather
+    // than crashing or silently dropping the verdict.
+    private void applyClassification(String classification) {
+        int colorRes;
+        String label;
+        switch (classification) {
+            case "best":
+                colorRes = R.color.feedback_best;
+                label = getString(R.string.feedback_verdict_best);
+                break;
+            case "good":
+                colorRes = R.color.feedback_good;
+                label = getString(R.string.feedback_verdict_good);
+                break;
+            case "inaccuracy":
+                colorRes = R.color.feedback_inaccuracy;
+                label = getString(R.string.feedback_verdict_inaccuracy);
+                break;
+            case "mistake":
+                colorRes = R.color.feedback_mistake;
+                label = getString(R.string.feedback_verdict_mistake);
+                break;
+            case "blunder":
+                colorRes = R.color.feedback_blunder;
+                label = getString(R.string.feedback_verdict_blunder);
+                break;
+            default:
+                colorRes = R.color.feedback_neutral;
+                label = classification;
+                break;
+        }
+        feedbackVerdictText.setText(label);
+        feedbackVerdictText.setTextColor(getColor(colorRes));
+    }
+
+    // cpLoss is a non-negative integer number of centipawns (server-side
+    // contract, CW-147) — this is the one place it becomes pawns for display.
+    // 0 reads as "0.00", not "-0.00": it is a loss of nothing, not a negative
+    // amount.
+    private static String formatCpLoss(int cpLoss) {
+        if (cpLoss == 0) {
+            return "0.00";
+        }
+        return String.format(Locale.US, "-%.2f", cpLoss / 100.0);
     }
 
     private void handleGameEnd(GameEnd event) {
