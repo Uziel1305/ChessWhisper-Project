@@ -71,6 +71,8 @@ function onFlag(gameId, expiredColor) {
     endGame(game, {
         result: expiredColor === 'white' ? '0-1' : '1-0',
         reason: 'timeout',
+    }).catch((err) => {
+        console.error('endGame failed for timeout on game', gameId, ':', err);
     });
 }
 

@@ -17,8 +17,10 @@ function accessTokenFor(userId) {
 }
 
 let server
-let port 
+let port
 const openClients=[];
+const GameManager = require('../src/game/GameManager');
+let activeGame = null;
 
 function connect(token) {
     const client = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
@@ -70,6 +72,18 @@ describe('matchmaking queue', () => {
     });
     
     afterAll(async () => {
+        // The one real match created below (the test right after this) is left
+        // unfinished by design — this file only tests matchmaking, not
+        // gameplay. Terminating its sockets below fires hub.js's fire-and-
+        // forget gameManager.abandon(), racing the DELETE/pool.end() calls
+        // that follow it — same race already fixed in moves.test.js. Ending
+        // it here first, through GameManager directly (same idiom as
+        // evaluation.test.js/privacy.test.js), and awaiting it, means it's
+        // already persisted by the time teardown deletes anything.
+        if (activeGame && GameManager.get(activeGame.gameId)) {
+            await GameManager.resign({ gameId: activeGame.gameId, userId: activeGame.userId });
+        }
+
         for (const client of openClients) {
             client.terminate();
         }
@@ -106,6 +120,7 @@ describe('matchmaking queue', () => {
 
         expect(eventA.type).toBe('match.found');
         expect(eventB.type).toBe('match.found');
+        activeGame = { gameId: eventA.gameId, userId: idA };
         // One game, not two that happen to look alike.
         expect(eventA.gameId).toBe(eventB.gameId);
         // CW-147: match.found carries the mode the game was created with —
