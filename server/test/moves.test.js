@@ -6,6 +6,9 @@ const app = require('../src/app');
 const pool = require('../src/db/pool');
 const queue = require('../src/matchmaking/queue');
 const { attachHub } = require('../src/ws/hub');
+const gamesRepo = require('../src/db/repositories/games.repo');
+const usersRepo = require('../src/db/repositories/users.repo');
+const GameManager = require('../src/game/GameManager');
 
 
 
@@ -19,6 +22,7 @@ function accessTokenFor(userId) {
 let server;
 let port;
 const openClients = [];
+const activeGames = [];
 
 function connect(token) {
     const client = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
@@ -91,6 +95,7 @@ async function matchedPair(prefix) {
 
     const white = eventA.color === 'white' ? a : b;
     const black = eventA.color === 'white' ? b : a;
+    activeGames.push({ gameId: eventA.gameId, white, black });
     return { white, black, gameId: eventA.gameId };
 }
 
@@ -120,6 +125,23 @@ describe('game.move', () => {
     });
 
     afterAll(async () => {
+        // Five of the tests above deliberately leave their game unfinished
+        // (one move, no resign/checkmate/abandon). Terminating those sockets
+        // below fires hub.js's fire-and-forget gameManager.abandon() for each
+        // one, racing the DELETE/pool.end() calls that follow — the second,
+        // dominant source of the abandon-on-disconnect race (the first being
+        // GameManager.endGame's own persist/broadcast ordering, fixed there).
+        // Resigning here first, and awaiting the response, means each one is
+        // already fully persisted by the time we get to teardown. Already-
+        // ended games (checkmate/resign/abandon tests) are skipped —
+        // GameManager has already removed them from its live map.
+        for (const { gameId, white, black } of activeGames) {
+            if (!GameManager.get(gameId)) continue;
+            const ended = nextEvent(black);
+            white.send(JSON.stringify({ type: 'game.resign', gameId }));
+            await ended;
+        }
+
         for (const client of openClients) {
             client.terminate();
         }
@@ -270,6 +292,14 @@ describe('game.move', () => {
     it('ends the game as a loss for whoever disconnects mid-game', async () => {
         const { white, black, gameId } = await matchedPair('MovesTestuser_abandon');
 
+        // Regression for the abandon-on-disconnect race: hub.js's disconnect
+        // handler logs any abandon()/endGame() failure under this exact
+        // message. The old broadcast-before-persist ordering let game.end
+        // reach the client before the DB writes it depends on had committed,
+        // which is what let test cleanup (and, in principle, anything else
+        // racing the DB) surface as this log line.
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
         // terminate(), not close(): this stands in for a crash/force-stop/lost
         // network, not a graceful leave — the abrupt case the disconnect
         // handler exists for. Either way the server sees a 'close' event.
@@ -281,6 +311,32 @@ describe('game.move', () => {
         // Whoever disconnected loses, so white dropping is a win for black.
         expect(event.result).toBe('0-1');
         expect(event.reason).toBe('abandoned');
+
+        // The event above must only ever arrive after persistence commits, not
+        // before it — so by now the DB already agrees with what the client
+        // was just told.
+        const row = await gamesRepo.findById(gameId);
+        expect(row.result).toBe('0-1');
+        expect(row.reason).toBe('abandoned');
+
+        // Equal starting ratings (1000), zero rated games each, decisive
+        // result — same ±16 magnitude as GameManager's timeout test.
+        const whiteUser = await usersRepo.findById(row.white_user_id);
+        const blackUser = await usersRepo.findById(row.black_user_id);
+        expect(whiteUser.rating).toBe(984);
+        expect(blackUser.rating).toBe(1016);
+
+        const historyRows = (await pool.query(
+            'SELECT user_id FROM rating_history WHERE game_id = $1',
+            [gameId]
+        )).rows;
+        expect(historyRows).toHaveLength(2);
+
+        expect(errorSpy).not.toHaveBeenCalledWith(
+            'abandon-on-disconnect failed:',
+            expect.anything()
+        );
+        errorSpy.mockRestore();
     });
 
 })
