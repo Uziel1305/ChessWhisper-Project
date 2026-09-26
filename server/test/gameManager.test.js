@@ -3,6 +3,7 @@ const app = require('../src/app');
 const pool = require('../src/db/pool');
 const gamesRepo = require('../src/db/repositories/games.repo');
 const usersRepo = require('../src/db/repositories/users.repo');
+const ratingsRepo = require('../src/db/repositories/ratings.repo');
 const GameManager = require('../src/game/GameManager');
 
 // Exercises GameManager.createGame directly rather than through queue.join: the
@@ -229,5 +230,73 @@ describe('GameManager — clock flag integration', () => {
 
         findByIdSpy.mockRestore();
         errorSpy.mockRestore();
+    });
+
+    // endGame's five writes (games.finish, two updateRating, two
+    // recordRatingChange) must land together or not at all. Forcing the first
+    // rating_history insert to fail — it runs after finish and both rating
+    // updates — must leave the database exactly as it was before the game
+    // ended: no result, no rating change, no history row. Without a
+    // transaction, the writes that did not fail commit on their own and leave
+    // a finished game whose ratings disagree with its history.
+    it('persists nothing when one of endGame\'s writes fails', async () => {
+        const whiteUserId = await registerPlayer('GameManagerTestuser_white4');
+        const blackUserId = await registerPlayer('GameManagerTestuser_black4');
+
+        const game = await GameManager.createGame({
+            mode: 'classic',
+            timeControl: 600000,
+            players: [{ userId: whiteUserId }, { userId: blackUserId }],
+        });
+
+        // The other writes run for real; the spies only keep hold of what they
+        // return. The failing insert waits for them to settle before it
+        // rejects. Without that wait the rejection surfaces while they are
+        // still in flight on other connections, and the assertions below read
+        // the database before those writes land — a pass for the wrong reason,
+        // which is exactly what this test's first version did.
+        const finishSpy = jest.spyOn(gamesRepo, 'finish');
+        const updateSpy = jest.spyOn(usersRepo, 'updateRating');
+        const recordSpy = jest
+            .spyOn(ratingsRepo, 'recordRatingChange')
+            .mockImplementationOnce(async () => {
+                await Promise.allSettled(
+                    [...finishSpy.mock.results, ...updateSpy.mock.results].map((r) => r.value)
+                );
+                throw new Error('rating_history insert failed');
+            });
+
+        try {
+            // Called directly, so the rejection reaches the test rather than a
+            // caller's .catch — nothing is logged, and the error gate stays quiet.
+            await expect(
+                GameManager.endGame(game, { result: '1-0', reason: 'resign' })
+            ).rejects.toThrow('rating_history insert failed');
+
+            // The failure really did come after the other writes had run, so
+            // there was something to undo.
+            expect(finishSpy).toHaveBeenCalledTimes(1);
+            expect(updateSpy).toHaveBeenCalledTimes(2);
+        } finally {
+            finishSpy.mockRestore();
+            updateSpy.mockRestore();
+            recordSpy.mockRestore();
+        }
+
+        const row = await gamesRepo.findById(game.id);
+        expect(row.result).toBeNull();
+        expect(row.reason).toBeNull();
+
+        // Both players are new, so both started at the default 1000.
+        const white = await usersRepo.findById(whiteUserId);
+        const black = await usersRepo.findById(blackUserId);
+        expect(white.rating).toBe(1000);
+        expect(black.rating).toBe(1000);
+
+        const history = (await pool.query(
+            'SELECT 1 FROM rating_history WHERE game_id = $1',
+            [game.id]
+        )).rows;
+        expect(history).toHaveLength(0);
     });
 });
