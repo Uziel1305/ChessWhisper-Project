@@ -17,9 +17,9 @@ int main(){
     // The live evaluator. Matches the option's declared default below, and is
     // never null — "material" is a name makeEvaluator knows.
     std::unique_ptr<Evaluator> evaluator = makeEvaluator("material");
-    // Fixed depth until CW-119 makes the search time-bounded. Settable so one
-    // binary can be run at several depths from a fastchess config without a
-    // rebuild — the same reason the evaluator is an option.
+    // The depth ceiling for an untimed search, and the fallback when a go command
+    // names neither a depth nor a budget. Settable so one binary runs at several
+    // depths from a fastchess config without a rebuild.
     int depth = 4;
     // The search's feature toggles. Held here, next to the evaluator, because
     // both are "what the engine is configured as" and both are set by
@@ -41,6 +41,7 @@ int main(){
             cout<<"option name Eval type combo default material var material\n";
             cout<<"option name Depth type spin default 4 min 1 max "<<MAX_PLY<<"\n";
             cout<<"option name AlphaBeta type check default true\n";
+            cout<<"option name IterativeDeepening type check default true\n";
             cout << "uciok\n";
             cout.flush();
         } else if (token == "setoption") {
@@ -74,9 +75,17 @@ int main(){
                 // A check option's value is exactly "true" or "false". Anything
                 // else is a hand-typed mistake, and silently treating it as
                 // false would mean an unexplained 10x slowdown.
-                if (value == "true") config.alphaBeta = true;
-                else if (value == "false") config.alphaBeta = false;
-                else std::cerr << "bad AlphaBeta value: " << value << "\n";
+                if (value == "true") {
+                    config.alphaBeta = true;
+                }else if (value == "false") {
+                    config.alphaBeta = false;
+                }else{
+                    std::cerr << "bad AlphaBeta value: " << value << "\n";
+                } 
+            } else if (name == "IterativeDeepening") {
+                if (value == "true") config.iterativeDeepening = true;
+                else if (value == "false") config.iterativeDeepening = false;
+                else std::cerr << "bad IterativeDeepening value: " << value << "\n";
             } else {
                 std::cerr << "unknown option: " << name << "\n";
             }
@@ -129,14 +138,14 @@ int main(){
                 }
             }
         }else if (token == "go") {
-            // movetime is parsed now, consumed at CW-119 when iterative
-            // deepening needs a deadline. depth/wtime/infinite are ignored —
-            // the facade only ever sends movetime.
-            int movetimeMs = 200;
-            // "go depth N" overrides the option for this one search, which is
-            // what UCI means by it — and it's the convenient way to test by
-            // hand. The option stays whatever it was.
-            int goDepth = depth;
+            // movetime is the only clock form we honour. wtime/btime/winc and
+            // "infinite" are ignored — we do no clock management of our own, and
+            // the facade only ever sends movetime (engine/facade/src/uci.js).
+            // 0 means no budget, which keeps a bare "go" reproducible.
+            int movetimeMs = 0;
+            // 0 means this go command did not name a depth.
+            int goDepth = 0;
+            
             std::string opt;
             while (iss >> opt) {
                 if (opt == "movetime") {
@@ -145,34 +154,32 @@ int main(){
                     iss >> goDepth;
                 }
             }
+            SearchLimits limits;
+            // An explicit "go depth N" wins. Otherwise a time budget means the
+            // clock is the only limit, which is what "go movetime" means in UCI —
+            // capping it at the Depth option would throw away depth the budget
+            // had already paid for. With no budget at all, the Depth option is
+            // the limit, which is what makes a bare "go" terminate.
+            limits.maxDepth = goDepth > 0 ? goDepth
+                                          : (movetimeMs > 0 ? MAX_PLY : depth);
+            limits.budgetMs = movetimeMs;
 
-            // A fresh Searcher per go. It owns the node counter, and CW-119
-            // gives it a deadline; nothing survives between searches yet, so
-            // there is nothing worth reusing.
-            Searcher searcher(*evaluator, config);
-            const SearchResult r = searcher.search(pos, goDepth);
-
-            // The whole live configuration on one line, so a setoption that
-            // never applied is visible in a log rather than showing up as an
-            // unexplained strength or speed difference.
             std::cout << "info string eval " << evaluator->name()
                       << " alphabeta " << (config.alphaBeta ? "true" : "false")
+                      << " id " << (config.iterativeDeepening ? "true" : "false")
                       << "\n";
+            // A fresh Searcher per go. It owns the node counter, the deadline and
+            // the stop flag; nothing survives between searches, so there is
+            // nothing worth reusing.
+            Searcher searcher(*evaluator, config);
+            const SearchResult r = searcher.search(pos, limits);
 
-            std::cout << "info depth " << goDepth;
-            if (isMateScore(r.score)) {
-                // Mate has no centipawn value, so it gets UCI's own mate
-                // encoding. The facade already reads this branch and clamps it
-                // to +-10000 — see engine/facade/src/uci.js.
-                std::cout << " score mate " << mateInMoves(r.score);
-            } else {
-                std::cout << " score cp " << r.score;
-            }
-            std::cout << " nodes " << r.nodes << "\n";
-
-            // 0000 when the position has no legal move — the search found no
-            // move because there is none. Whether that is mate or stalemate is
-            // the game server's call, not the engine's.
+            // r.nodes is the total INCLUDING an iteration the clock abandoned, so
+            // it can exceed the last "info depth" line's count. That difference is
+            // the work thrown away — the number the half-budget cutoff is tuned
+            // against.
+            std::cout << "info string nodes " << r.nodes
+                      << " completed depth " << r.depth << "\n";
             std::cout << "bestmove "
                       << (r.best.move() == Move::NO_MOVE ? "0000" : pos.toUci(r.best))
                       << "\n" << std::flush;
