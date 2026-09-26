@@ -79,16 +79,19 @@ const FOUR_PLIES = ['e2e4', 'e7e5', 'g1f3', 'b8c6'];
 // Fool's mate: the shortest checkmate, four half-moves, the last one mating.
 const FOOLS_MATE = ['f2f3', 'e7e5', 'g2g4', 'd8h4'];
 
-function evaluatedEvents() {
+// CW-151: filters on the new shared name, eval.update — not the source's
+// still-current move.evaluated, which is exactly what makes every eval-mode
+// test below red until CW-152 does the actual rename in GameManager.js.
+function evalUpdateEvents() {
     return sent
-        .filter(([, event]) => event.type === 'move.evaluated')
+        .filter(([, event]) => event.type === 'eval.update')
         .map(([userId, event]) => [String(userId), event]);
 }
 
-// Same shape as evaluatedEvents(), but for the feedback pipeline's own event
+// Same shape as evalUpdateEvents(), but for the feedback pipeline's own event
 // type — CW-147 split move.evaluated into move.feedback (mover only, carries
-// cpLoss) and eval.update (both players; still move.evaluated until CW-152
-// renames it), so the two are no longer one overloaded type.
+// cpLoss) and eval.update (both players), so the two are no longer one
+// overloaded type.
 function feedbackEvents() {
     return sent
         .filter(([, event]) => event.type === 'move.feedback')
@@ -173,7 +176,7 @@ describe('engine evaluation in the move pipeline', () => {
             await play(game, FOUR_PLIES);
 
             expect(engineClient.evaluate).not.toHaveBeenCalled();
-            expect(evaluatedEvents()).toEqual([]);
+            expect(evalUpdateEvents()).toEqual([]);
         });
 
         it.each(['eval', 'feedback'])('makes an engine call in a %s game', async (mode) => {
@@ -198,7 +201,7 @@ describe('engine evaluation in the move pipeline', () => {
             await play(game, FOUR_PLIES);
             for (let i = 0; i < EVALS.length; i++) await answer(i + 1, EVALS[i]);
 
-            const events = evaluatedEvents();
+            const events = evalUpdateEvents();
             expect(events).toHaveLength(8); // 4 plies x 2 players
             for (const ply of [1, 2, 3, 4]) {
                 const forPly = events.filter(([, e]) => e.ply === ply);
@@ -206,7 +209,7 @@ describe('engine evaluation in the move pipeline', () => {
                     [String(game.whiteUserId), String(game.blackUserId)].sort()
                 );
                 for (const [, event] of forPly) {
-                    expect(event).toEqual({ type: 'move.evaluated', ply, evalCp: EVALS[ply - 1] });
+                    expect(event).toEqual({ type: 'eval.update', ply, evalCp: EVALS[ply - 1] });
                 }
             }
         });
@@ -337,7 +340,7 @@ describe('engine evaluation in the move pipeline', () => {
             const feedbackGame = await newGame('feedback');
             await play(feedbackGame, ['e2e4']);
             await answer(1, 30);
-            expect(evaluatedEvents()).toEqual([]);
+            expect(evalUpdateEvents()).toEqual([]);
         });
 
         it('gets a bar value in an eval game', async () => {
@@ -345,9 +348,9 @@ describe('engine evaluation in the move pipeline', () => {
             await play(game, ['e2e4']);
             await answer(1, 30);
 
-            expect(evaluatedEvents().map(([, e]) => e)).toEqual([
-                { type: 'move.evaluated', ply: 1, evalCp: 30 },
-                { type: 'move.evaluated', ply: 1, evalCp: 30 },
+            expect(evalUpdateEvents().map(([, e]) => e)).toEqual([
+                { type: 'eval.update', ply: 1, evalCp: 30 },
+                { type: 'eval.update', ply: 1, evalCp: 30 },
             ]);
         });
 
@@ -371,9 +374,9 @@ describe('engine evaluation in the move pipeline', () => {
             // Ply 3 answers first, then ply 1, then ply 2. Nothing can be
             // classified until ply 2 lands, because plies 2 and 3 both need it.
             await answer(3, 150);
-            expect(evaluatedEvents()).toEqual([]);
+            expect(evalUpdateEvents()).toEqual([]);
             await answer(1, 30);
-            expect(evaluatedEvents()).toEqual([]);
+            expect(evalUpdateEvents()).toEqual([]);
             await answer(2, 200);
 
             // Ply 2: black, 30 -> 200 = lost 170 = mistake.
@@ -403,9 +406,9 @@ describe('engine evaluation in the move pipeline', () => {
             await play(game, ['e2e4', 'e7e5']);
 
             await answer(2, 20);
-            expect(evaluatedEvents().map(([, e]) => e.ply)).toEqual([2, 2]);
+            expect(evalUpdateEvents().map(([, e]) => e.ply)).toEqual([2, 2]);
             await answer(1, 30);
-            expect(evaluatedEvents().map(([, e]) => e.ply)).toEqual([2, 2, 1, 1]);
+            expect(evalUpdateEvents().map(([, e]) => e.ply)).toEqual([2, 2, 1, 1]);
         });
     });
 
@@ -450,7 +453,7 @@ describe('engine evaluation in the move pipeline', () => {
             });
             expect(second).not.toBeNull();
             expect(committedTo(game.whiteUserId)).toHaveLength(2);
-            expect(evaluatedEvents()).toEqual([]);
+            expect(evalUpdateEvents()).toEqual([]);
         });
 
         it('commits and delivers moves when the engine rejects', async () => {
@@ -462,7 +465,7 @@ describe('engine evaluation in the move pipeline', () => {
 
             expect(committedTo(game.whiteUserId)).toHaveLength(4);
             expect(committedTo(game.blackUserId)).toHaveLength(4);
-            expect(evaluatedEvents()).toEqual([]);
+            expect(evalUpdateEvents()).toEqual([]);
             // One logged line per failed evaluation, and nothing left unhandled.
             expect(console.error).toHaveBeenCalledTimes(4);
             expect(unhandled).toEqual([]);
@@ -512,12 +515,12 @@ describe('engine evaluation in the move pipeline', () => {
 
             const order = sent.map(([, event]) => event.type);
             const lastEnd = order.lastIndexOf('game.end');
-            const lastEvaluated = order.lastIndexOf('move.evaluated');
+            const lastEvaluated = order.lastIndexOf('eval.update');
             expect(lastEnd).toBeGreaterThan(-1);
             expect(lastEvaluated).toBeGreaterThan(lastEnd);
-            expect(evaluatedEvents().map(([, e]) => e)).toEqual([
-                { type: 'move.evaluated', ply: 4, evalCp: -10000 },
-                { type: 'move.evaluated', ply: 4, evalCp: -10000 },
+            expect(evalUpdateEvents().map(([, e]) => e)).toEqual([
+                { type: 'eval.update', ply: 4, evalCp: -10000 },
+                { type: 'eval.update', ply: 4, evalCp: -10000 },
             ]);
             expect(unhandled).toEqual([]);
         });
