@@ -374,9 +374,9 @@ describe('engine evaluation in the move pipeline', () => {
             // Ply 3 answers first, then ply 1, then ply 2. Nothing can be
             // classified until ply 2 lands, because plies 2 and 3 both need it.
             await answer(3, 150);
-            expect(evalUpdateEvents()).toEqual([]);
+            expect(feedbackEvents()).toEqual([]);
             await answer(1, 30);
-            expect(evalUpdateEvents()).toEqual([]);
+            expect(feedbackEvents()).toEqual([]);
             await answer(2, 200);
 
             // Ply 2: black, 30 -> 200 = lost 170 = mistake.
