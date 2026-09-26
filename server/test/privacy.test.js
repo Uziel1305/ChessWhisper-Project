@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const WebSocket = require('ws');
 const app = require('../src/app');
 const pool = require('../src/db/pool');
-const { attachHub } = require('../src/ws/hub');
+const { attachHub, closeHub } = require('../src/ws/hub');
 const queue = require('../src/matchmaking/queue');
 const engineClient = require('../src/engine/engineClient');
 const GameManager = require('../src/game/GameManager');
@@ -124,6 +124,10 @@ describe('feedback privacy', () => {
     });
 
     afterAll(async () => {
+        // afterEach resigns the game a test recorded; closeHub() ends and drains
+        // anything it missed (a test that failed before setting gameId) before
+        // any row is deleted.
+        await closeHub();
         for (const client of openClients) {
             client.terminate();
         }

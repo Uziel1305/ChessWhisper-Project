@@ -5,7 +5,7 @@ const WebSocket = require('ws');
 const app = require('../src/app');
 const pool = require('../src/db/pool');
 const queue = require('../src/matchmaking/queue');
-const { attachHub } = require('../src/ws/hub');
+const { attachHub, closeHub } = require('../src/ws/hub');
 const gamesRepo = require('../src/db/repositories/games.repo');
 const usersRepo = require('../src/db/repositories/users.repo');
 const GameManager = require('../src/game/GameManager');
@@ -216,6 +216,12 @@ describe('game.move', () => {
             if (!live) continue;
             await GameManager.resign({ gameId, userId: live.whiteUserId });
         }
+
+        // The loop above only reaches games matchedPair recorded. A test that
+        // fails before that (e.g. match.found arriving late) still leaves a live
+        // game on the server; closeHub() ends and drains it before any row is
+        // deleted.
+        await closeHub();
 
         for (const client of openClients) {
             client.terminate();

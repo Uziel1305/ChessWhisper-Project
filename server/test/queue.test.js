@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const WebSocket = require('ws');
 const app = require('../src/app');
 const pool = require('../src/db/pool');
-const { attachHub } = require('../src/ws/hub');
+const { attachHub, closeHub } = require('../src/ws/hub');
 const queue = require('../src/matchmaking/queue');
 
 
@@ -83,6 +83,13 @@ describe('matchmaking queue', () => {
         if (activeGame && GameManager.get(activeGame.gameId)) {
             await GameManager.resign({ gameId: activeGame.gameId, userId: activeGame.userId });
         }
+
+        // The resign above only reaches a game the test got as far as recording.
+        // A test that fails before that line (e.g. match.found arriving late)
+        // still leaves a live game on the server. closeHub() ends every game its
+        // sockets can reach and resolves only once that work has been persisted,
+        // so nothing below deletes rows underneath a running abandon.
+        await closeHub();
 
         for (const client of openClients) {
             client.terminate();
