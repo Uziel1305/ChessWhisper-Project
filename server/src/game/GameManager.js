@@ -279,7 +279,7 @@ function publishEvaluation(game, ply, moverUserId) {
     if (game.mode === 'eval') {
         // Both players see the same bar, and it needs no neighbouring result, so
         // it goes out the moment it arrives.
-        const event = { type: 'move.evaluated', ply, evalCp: game.evals.get(ply) };
+        const event = { type: 'eval.update', ply, evalCp: game.evals.get(ply) };
         hub.sendToUser(game.whiteUserId, event);
         hub.sendToUser(game.blackUserId, event);
     }
