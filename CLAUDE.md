@@ -288,8 +288,13 @@ AI-assist features are switched on for that game:
   They also travel on every `queue.join`, so brevity costs nothing and buys headroom.
 - `queue.join` must **reject** an unrecognised mode rather than key a waiting list by it.
   A typo would otherwise leave a player queued alone forever, with no error to explain it.
-- Android hardcodes `mode: 'classic'` from CW-41. A picker is deferred exactly as the
-  time-control picker is: cheap to build once the assist features exist, worthless before.
+- Android chooses the mode with a picker on the home screen (CW-155), above Play. It
+  hardcoded `mode: 'classic'` from CW-41 until the assist features existed to choose
+  between. The picker offers **classic, eval and feedback only** — `retraction` is
+  accepted by the server but deliberately not offered until its feature is built, since
+  choosing it would give a game with no assist at all. `GameMode`
+  (`android/.../ui/home/GameMode.java`) is the one place Android names the modes, with
+  their wire values pinned by `GameModeTest`; the selection lives in `HomeViewModel`.
 - Rejected alternative: `mode` as `rated`/`casual`. Nothing in this product is unrated, so
   the field would have carried no information, and the assist features would then have
   needed a second field anyway.

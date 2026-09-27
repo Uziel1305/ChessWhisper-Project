@@ -18,6 +18,7 @@ import com.example.chesswhisper.data.auth.SessionManager;
 import com.example.chesswhisper.ui.SessionAwareActivity;
 import com.example.chesswhisper.ui.game.GameActivity;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 
 // The home screen. It only renders state — the username and rating come straight
 // from GET /api/users/me and are never computed or cached here.
@@ -32,6 +33,7 @@ public class HomeActivity extends SessionAwareActivity {
     private ProgressBar progressBar;
     private MaterialButton retryButton;
     private MaterialButton playButton;
+    private MaterialButtonToggleGroup modePicker;
     private HomeViewModel viewModel;
     // render() and renderMatchmaking() fire from separate LiveData observers, so
     // playButton's enabled state (profile loaded AND not already connecting) needs
@@ -60,8 +62,10 @@ public class HomeActivity extends SessionAwareActivity {
         progressBar = findViewById(R.id.progressBar);
         retryButton = findViewById(R.id.retryButton);
         playButton = findViewById(R.id.playButton);
+        modePicker = findViewById(R.id.modePicker);
         // Tied to this Activity, so the same instance comes back after rotation.
         viewModel= new ViewModelProvider(this).get(HomeViewModel.class);
+        bindModePicker();
         viewModel.getState().observe(this, new Observer<HomeViewModel.HomeState>() {
             @Override
             public void onChanged(HomeViewModel.HomeState homeState) {
@@ -75,12 +79,48 @@ public class HomeActivity extends SessionAwareActivity {
                 load();
             }
         });
-        // "classic" until CW-155 adds a mode picker to this screen.
-        playButton.setOnClickListener(v -> viewModel.play("classic"));
+        // Queues with whatever the picker has selected (HomeViewModel holds it).
+        playButton.setOnClickListener(v -> viewModel.play());
         load();
     }
     private void load(){
         viewModel.load();
+    }
+
+    // Labels come from GameMode, and the checked button is set from the
+    // ViewModel's selection rather than left to the view's own saved state — so
+    // after rotation the ViewModel, not the widget, is what decides the mode.
+    private void bindModePicker() {
+        for (GameMode mode : GameMode.values()) {
+            MaterialButton button = findViewById(buttonIdFor(mode));
+            button.setText(mode.labelRes);
+        }
+        modePicker.check(buttonIdFor(viewModel.getSelectedMode()));
+        modePicker.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            // selectionRequired means a click never leaves nothing checked, but
+            // it still reports the previous button being unchecked — ignore that.
+            if (!isChecked) return;
+            for (GameMode mode : GameMode.values()) {
+                if (buttonIdFor(mode) == checkedId) {
+                    viewModel.selectMode(mode);
+                    return;
+                }
+            }
+        });
+    }
+
+    // A switch on the enum, not on R.id values: resource ids are not
+    // compile-time constants under current Android Gradle Plugin defaults.
+    private static int buttonIdFor(GameMode mode) {
+        switch (mode) {
+            case EVAL:
+                return R.id.modeEvalButton;
+            case FEEDBACK:
+                return R.id.modeFeedbackButton;
+            case CLASSIC:
+            default:
+                return R.id.modeClassicButton;
+        }
     }
     
     // Single place that turns a state into what is on screen. All three groups
@@ -134,6 +174,13 @@ public class HomeActivity extends SessionAwareActivity {
         boolean connecting = matchmakingState != null
                 && matchmakingState.status == HomeViewModel.MatchmakingStatus.CONNECTING;
         playButton.setEnabled(profileLoaded && !connecting);
+        // The mode is fixed once queue.join has gone out; changing the picker
+        // mid-queue would show a mode the player isn't actually waiting in. Each
+        // button is disabled individually — a ViewGroup's own enabled flag
+        // doesn't reach its children.
+        for (int i = 0; i < modePicker.getChildCount(); i++) {
+            modePicker.getChildAt(i).setEnabled(!connecting);
+        }
     }
 
 }
