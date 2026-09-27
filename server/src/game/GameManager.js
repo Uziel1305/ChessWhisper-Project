@@ -4,6 +4,7 @@ const movesRepo = require('../db/repositories/moves.repo');
 const usersRepo = require('../db/repositories/users.repo');
 const ratingsRepo = require('../db/repositories/ratings.repo');
 const feedbackRepo = require('../db/repositories/feedback.repo');
+const { withTransaction } = require('../db/transaction');
 const elo = require('../rating/elo');
 const Game = require('./Game');
 const Clock = require('./clock');
@@ -423,19 +424,27 @@ async function endGame(game, { result, reason }) {
     // "the write actually ran". Persisting first closes that gap — by the
     // time either player hears game.end, the row updates and the
     // rating_history insert are already durable.
-    await Promise.all([
-        gamesRepo.finish({ id: game.id, result, reason }),
-        usersRepo.updateRating(game.whiteUserId, whiteNewRating),
-        usersRepo.updateRating(game.blackUserId, blackNewRating),
-        ratingsRepo.recordRatingChange({
+    //
+    // One transaction, so the five writes land together or not at all. They
+    // used to be five independent queries on the shared pool: when one failed,
+    // the rest had already committed, leaving e.g. a finished game with ratings
+    // applied and no history row (gameManager.test.js reproduces exactly that).
+    // Sequential rather than Promise.all because a single connection runs one
+    // query at a time anyway. Every write takes `client`, never the pool — see
+    // withTransaction for why.
+    await withTransaction(async (client) => {
+        await gamesRepo.finish({ id: game.id, result, reason }, client);
+        await usersRepo.updateRating(game.whiteUserId, whiteNewRating, client);
+        await usersRepo.updateRating(game.blackUserId, blackNewRating, client);
+        await ratingsRepo.recordRatingChange({
             gameId: game.id, userId: game.whiteUserId,
             ratingBefore: whiteUser.rating, ratingAfter: whiteNewRating,
-        }),
-        ratingsRepo.recordRatingChange({
+        }, client);
+        await ratingsRepo.recordRatingChange({
             gameId: game.id, userId: game.blackUserId,
             ratingBefore: blackUser.rating, ratingAfter: blackNewRating,
-        }),
-    ]);
+        }, client);
+    });
 
     // Each side gets its own payload now, not a shared object like before
     // CW-134: the rating delta genuinely differs between the two players, so

@@ -20,9 +20,10 @@ async function countRatedGames(userId) {
 
 // One row per player per game — GameManager (CW-134) calls this once for
 // each side after computing both deltas, the same way it calls
-// usersRepo.updateRating once per side.
-async function recordRatingChange({ gameId, userId, ratingBefore, ratingAfter }) {
-    const result = await pool.query(
+// usersRepo.updateRating once per side. `db` defaults to the shared pool;
+// endGame passes a transaction's client instead.
+async function recordRatingChange({ gameId, userId, ratingBefore, ratingAfter }, db = pool) {
+    const result = await db.query(
         `INSERT INTO rating_history (game_id, user_id, rating_before, rating_after)
          VALUES ($1, $2, $3, $4)
          RETURNING id, game_id, user_id, rating_before, rating_after, created_at`,

@@ -3,7 +3,7 @@ const jwt=require('jsonwebtoken')
 const WebSocket=require('ws')
 const app=require('../src/app')
 const pool=require('../src/db/pool')
-const {attachHub}=require('../src/ws/hub')
+const {attachHub, closeHub}=require('../src/ws/hub')
 
 
 
@@ -57,6 +57,9 @@ describe('websocket upgrade at /ws',()=>{
         port=server.address().port;
     })
     afterAll(async () => {
+        // No games here, but every open socket's close still runs the hub's
+        // disconnect handler. closeHub() lets that finish before the pool ends.
+        await closeHub();
         for(const client of openClients){
             client.terminate();
         }

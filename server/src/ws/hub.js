@@ -14,6 +14,25 @@ const usersRepo = require('../db/repositories/users.repo');
 // moves and queue joins of its own.
 const socketByUser = new Map();
 
+// Every piece of async work a socket event started and nobody awaits: the
+// disconnect abandon, and the queue.join / game.move / game.resign handlers.
+// ws calls its listeners synchronously and discards what they return, so
+// without this there is no point anywhere in the process at which that work
+// can be waited for — which is what let test teardown delete rows underneath a
+// running endGame. Each promise is added with its .catch already attached, so
+// it never rejects, and removed again once it settles.
+const inFlight = new Set();
+
+function track(promise) {
+    inFlight.add(promise);
+    promise.finally(() => inFlight.delete(promise));
+    return promise;
+}
+
+// Set by closeHub(). Once set, no new socket is accepted.
+let closing = false;
+let closed = null;
+
 
 
 function register(userId, ws) {
@@ -88,6 +107,13 @@ function attachHub(server) {
     // from normal HTTP into a WebSocket connection.
     server.on('upgrade', (request, socket, head) => {
 
+        // The hub is shutting down: a socket accepted now would start work
+        // after closeHub() has already stopped waiting for it.
+        if (closing) {
+            socket.destroy();
+            return;
+        }
+
         // request = the HTTP upgrade request
         // socket  = the underlying TCP connection
         // head    = extra bytes Node may already have read
@@ -135,9 +161,9 @@ function attachHub(server) {
                     // A dropped connection mid-game must not leave the game live
                     // forever with its clock ticking toward a flag nobody's
                     // watching - abandon it on the disconnecting player's behalf.
-                    gameManager.abandon(userId).catch((err) => {
+                    track(gameManager.abandon(userId).catch((err) => {
                         console.error('abandon-on-disconnect failed:', err);
-                    });
+                    }));
                 }
             });
 
@@ -223,7 +249,7 @@ wss.on('connection', (ws) => {
         if (event.type === 'queue.join') {
             // The listener can be async, but ws.on() does not await its returned Promise.
             // Catch handleQueueJoin() explicitly so a rejection is not left unhandled.
-            handleQueueJoin(ws, event).catch((err) => {
+            track(handleQueueJoin(ws, event).catch((err) => {
                 // Only bugs reach here — every expected failure is answered
                 // inside handleQueueJoin. The stack goes to the log; the player
                 // gets something generic, because we do not know what broke.
@@ -239,7 +265,7 @@ wss.on('connection', (ws) => {
                     error: 'queue_failed',
                     message: 'could not join the queue, please try again',
                 });
-            });
+            }));
             return;
         }
         if (event.type === 'game.move') {
@@ -253,25 +279,25 @@ wss.on('connection', (ws) => {
             // already advanced but neither player was told, so this is the one
             // case where the two sides genuinely diverge. The log is the only
             // signal, and it is worth watching for during CW-57's acceptance run.
-            gameManager.applyMove({
+            track(gameManager.applyMove({
                 gameId: event.gameId,
                 userId: ws.userId,
                 uci: event.uci,
             }).catch((err) => {
                 console.error('game.move failed:', err);
-            });
+            }));
             return;
         }
         if (event.type === 'game.resign') {
             // Same shape as game.move: resign() answers an invalid request with
             // null and a log line, so there is nothing to send back. The catch is
             // only for the games.finish write throwing.
-            gameManager.resign({
+            track(gameManager.resign({
                 gameId: event.gameId,
                 userId: ws.userId,
             }).catch((err) => {
                 console.error('game.resign failed:', err);
-            });
+            }));
             return;
         }
         if (event.type === 'queue.leave') {
@@ -280,4 +306,51 @@ wss.on('connection', (ws) => {
     });
 });
 
-module.exports = { attachHub, sendToUser };
+// Stops the hub and resolves only once every piece of work its sockets started
+// has finished. Nothing calls this in production yet; it is the primitive that
+// test teardown and a graceful shutdown both need. Idempotent: a second call
+// returns the same promise.
+//
+// It terminates the sockets itself rather than waiting for someone else to.
+// ws 8's wss.close() does not close existing connections, and a socket closed
+// from the client side is only noticed here on a later tick — so if a caller
+// terminated its clients and then called this, the set below could still be
+// empty and this would resolve before abandon() had even started.
+//
+// Terminating a socket runs the hub's own 'close' handler, which abandons that
+// player's live game. So a game still live when this is called ends as
+// 'abandoned'. Whether a production shutdown should do that is decided where
+// shutdown is wired up, not here.
+function closeHub() {
+    if (closed) return closed;
+    closing = true;
+
+    closed = (async () => {
+        // wss.clients rather than socketByUser: it includes sockets that have
+        // been replaced by a newer connection and are still closing.
+        const sockets = [...wss.clients];
+        await Promise.all(sockets.map((ws) => new Promise((resolve) => {
+            if (ws.readyState === WebSocket.CLOSED) {
+                resolve();
+                return;
+            }
+            // Registered after the hub's own 'close' handler, so by the time
+            // this runs that handler has already started and tracked abandon().
+            ws.once('close', resolve);
+            ws.terminate();
+        })));
+
+        // Loop rather than await once: work can still be added while waiting,
+        // e.g. by a message that was already being handled.
+        while (inFlight.size > 0) {
+            await Promise.all([...inFlight]);
+        }
+
+        await new Promise((resolve) => wss.close(() => resolve()));
+        socketByUser.clear();
+    })();
+
+    return closed;
+}
+
+module.exports = { attachHub, sendToUser, closeHub };

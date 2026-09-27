@@ -51,9 +51,10 @@ async function insert(username, passwordHash){
 
 // Writes the new rating after a game ends (GameManager's endGame, per
 // CW-134). Takes the already-computed new value rather than a delta — the
-// delta math is elo.js's job, this is just the write.
-async function updateRating(id, rating){
-    const result= await pool.query(
+// delta math is elo.js's job, this is just the write. `db` defaults to the
+// shared pool; endGame passes a transaction's client instead.
+async function updateRating(id, rating, db = pool){
+    const result= await db.query(
         'UPDATE users SET rating=$2 WHERE id=$1 RETURNING id,username, rating, created_at',
         [id, rating]
     );
