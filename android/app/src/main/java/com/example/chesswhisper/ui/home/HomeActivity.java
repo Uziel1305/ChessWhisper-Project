@@ -75,10 +75,8 @@ public class HomeActivity extends SessionAwareActivity {
                 load();
             }
         });
-        // TEMPORARY — CW-150 manual acceptance only. "classic" until CW-155
-        // adds a real mode picker to this screen; do not commit this as
-        // "feedback". Revert to "classic" before finishing CW-150.
-        playButton.setOnClickListener(v -> viewModel.play("feedback"));
+        // "classic" until CW-155 adds a mode picker to this screen.
+        playButton.setOnClickListener(v -> viewModel.play("classic"));
         load();
     }
     private void load(){

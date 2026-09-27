@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.chesswhisper.R;
 import com.example.chesswhisper.data.game.GameSocket;
+import com.example.chesswhisper.data.game.model.EvalUpdate;
 import com.example.chesswhisper.data.game.model.GameEnd;
 import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.game.model.MoveCommitted;
@@ -41,6 +42,7 @@ public class GameActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private BoardView boardView;
+    private EvalBarView evalBarView;
     private TextView opponentNameText;
     private TextView opponentRatingText;
     private TextView opponentClockText;
@@ -85,6 +87,7 @@ public class GameActivity extends AppCompatActivity {
         setContentView(R.layout.activity_game);
 
         boardView = findViewById(R.id.boardView);
+        evalBarView = findViewById(R.id.evalBarView);
         opponentNameText = findViewById(R.id.opponentNameText);
         opponentRatingText = findViewById(R.id.opponentRatingText);
         opponentClockText = findViewById(R.id.opponentClockText);
@@ -137,6 +140,13 @@ public class GameActivity extends AppCompatActivity {
                 feedbackVerdictText.setText(R.string.feedback_placeholder);
                 feedbackVerdictText.setTextColor(getColor(R.color.feedback_neutral));
             }
+            // Same rule for the eval bar: only an eval game shows it. It starts
+            // at 50/50 until the first eval.update, and is oriented like the
+            // board — the local player's colour at the bottom.
+            if ("eval".equals(matchFound.mode)) {
+                evalBarView.setFlipped(!"white".equals(myColor));
+                evalBarView.setVisibility(View.VISIBLE);
+            }
             GameSocket.getInstance().setGameListener(new GameSocket.GameListener() {
                 @Override
                 public void onMoveCommitted(MoveCommitted event) {
@@ -146,6 +156,13 @@ public class GameActivity extends AppCompatActivity {
                 @Override
                 public void onMoveFeedback(MoveFeedback event) {
                     runOnUiThread(() -> handleMoveFeedback(event));
+                }
+
+                @Override
+                public void onEvalUpdate(EvalUpdate event) {
+                    // Stale/duplicate plies and the mate label's show/clear
+                    // decision are the bar's own model's job (EvalBarModel).
+                    runOnUiThread(() -> evalBarView.setEval(event.ply, event.evalCp, event.mateIn));
                 }
 
                 @Override

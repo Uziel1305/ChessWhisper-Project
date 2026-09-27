@@ -1,6 +1,7 @@
 package com.example.chesswhisper.data.game;
 
 import com.example.chesswhisper.BuildConfig;
+import com.example.chesswhisper.data.game.model.EvalUpdate;
 import com.example.chesswhisper.data.game.model.GameEnd;
 import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.game.model.MoveCommitted;
@@ -33,6 +34,7 @@ public final class GameSocket {
     public interface GameListener {
         void onMoveCommitted(MoveCommitted event);
         void onMoveFeedback(MoveFeedback event);
+        void onEvalUpdate(EvalUpdate event);
         void onGameEnd(GameEnd event);
         void onFailure(Throwable t);
     }
@@ -108,6 +110,11 @@ public final class GameSocket {
                     case "move.feedback":
                         if (gameListener != null) {
                             gameListener.onMoveFeedback(new Gson().fromJson(json, MoveFeedback.class));
+                        }
+                        break;
+                    case "eval.update":
+                        if (gameListener != null) {
+                            gameListener.onEvalUpdate(new Gson().fromJson(json, EvalUpdate.class));
                         }
                         break;
                     case "game.end":

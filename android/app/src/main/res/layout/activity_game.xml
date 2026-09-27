@@ -39,10 +39,32 @@
         tools:text="10:00"
         tools:visibility="visible" />
 
-    <com.example.chesswhisper.ui.game.BoardView
-        android:id="@+id/boardView"
+    <!-- The board, with the eval bar (CW-153) beside it. The bar is GONE outside an
+         eval-mode game, and a GONE child takes no width, so in every other mode the
+         board fills the row exactly as it did before this row existed. The bar's
+         match_parent height inside this wrap_content row is LinearLayout's
+         two-pass case: it is re-measured to the height the square board settled
+         on, so the two always line up without either view knowing the other. -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <com.example.chesswhisper.ui.game.EvalBarView
+            android:id="@+id/evalBarView"
+            android:layout_width="28dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="4dp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <com.example.chesswhisper.ui.game.BoardView
+            android:id="@+id/boardView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+    </LinearLayout>
 
     <!-- Instant-feedback panel (CW-149). GONE outside a feedback-mode game —
          mode is not known until match.found, and classic must show nothing at
