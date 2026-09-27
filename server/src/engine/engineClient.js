@@ -1,9 +1,10 @@
 // The game server's only door to the engine facade. Posts a position and a time
-// budget, returns the evaluation in centipawns from WHITE's perspective (the
-// facade normalises UCI's side-to-move scores, so nothing here or in
-// GameManager needs to know whose turn it was).
+// budget, returns { cp, mateIn }: the evaluation in centipawns and, when the
+// engine found a forced mate, its signed distance (null otherwise) — both from
+// WHITE's perspective (the facade normalises UCI's side-to-move scores, so
+// nothing here or in GameManager needs to know whose turn it was).
 //
-// This file reports what happened — it resolves with a number or rejects — and
+// This file reports what happened — it resolves with { cp, mateIn } or rejects — and
 // protects the rest of the process from a dead engine (the circuit breaker
 // below). The policy that a slow or unavailable engine must never delay a move
 // lives in GameManager, not here.
@@ -73,9 +74,15 @@ async function request(base, fen, budgetMs) {
     });
     if (!res.ok) throw new Error(`engine responded ${res.status}`);
 
-    const { cp } = await res.json();
+    // The facade adds mateIn only when the engine reported a forced mate
+    // (white-perspective, signed: positive = White mates). It's normalized to
+    // null here so every caller gets one shape, whether or not the key was sent.
+    const { cp, mateIn } = await res.json();
     if (!Number.isInteger(cp)) throw new Error('engine returned no integer cp');
-    return cp;
+    if (mateIn !== undefined && !Number.isInteger(mateIn)) {
+        throw new Error('engine returned a non-integer mateIn');
+    }
+    return { cp, mateIn: mateIn ?? null };
 }
 
 // Test hooks: the breaker is module-level state, and its clock has to be

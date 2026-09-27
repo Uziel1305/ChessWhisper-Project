@@ -16,6 +16,8 @@
 //   FAKE-slow    respond after FAKE_DELAY_MS (default 50ms) with a fixed score
 //   FAKE-hang    never respond — exercises pool.js's own timeout/respawn path
 //   FAKE-crash   exit(1) immediately — exercises the unexpected-exit path
+//   FAKE-mate3   respond immediately with `score mate 3` (side to move mates
+//                in 3) — exercises mate-distance propagation
 
 const readline = require('readline');
 
@@ -33,8 +35,11 @@ function respond(fen) {
         return; // deliberately never answers
     }
     const delayMs = behavior === 'slow' ? Number(process.env.FAKE_DELAY_MS || 50) : 0;
+    // Reported from the side to move, exactly as a real UCI engine does — the
+    // facade, not this fixture, is what turns it into White's perspective.
+    const score = behavior === 'mate3' ? 'mate 3' : `cp ${FAKE_CP}`;
     setTimeout(() => {
-        console.log(`info depth 1 score cp ${FAKE_CP}`);
+        console.log(`info depth 1 score ${score}`);
         console.log('bestmove e2e4');
     }, delayMs);
 }

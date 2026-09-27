@@ -1,0 +1,5 @@
+# This one test fixture is executed directly through its shebang inside the
+# Linux engine container. With core.autocrlf=true a Windows checkout gives it
+# CRLF endings, the shebang becomes "node\r", and every facade test hangs.
+# Scoped to this single file on purpose — nothing else in the repo is affected.
+engine/facade/test-support/fake-engine.js text eol=lf

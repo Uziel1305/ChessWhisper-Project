@@ -8,7 +8,9 @@ const { spawnEngine, whiteToMoveFrom, parseScoreLine } = require('./uci');
 // investigation this file's rewrite came out of). This file keeps a small
 // number of engine processes alive across many requests instead.
 //
-//   evaluate(fen, budgetMs)  ->  Promise<cp>
+//   evaluate(fen, budgetMs)  ->  Promise<{ cp, mateIn }>
+//
+// mateIn is null unless the engine reported a mate (see uci.js).
 //
 // Same signature and same error shape (a plain Error, or one with
 // `.timedOut = true`) as uci.js's old evaluate() — index.js's status-code
@@ -83,13 +85,19 @@ function attachLineHandler(worker) {
         // but a stray line here must never crash the facade).
         if (!worker.current) return;
         if (line.startsWith('info ')) {
-            const score = parseScoreLine(line, worker.current.whiteToMove);
-            if (score !== null) worker.current.score = score;
+            // cp and mateIn come from the same line and are kept together:
+            // the latest scored line wins as a pair, never mixing a cp from
+            // one line with a mate distance from another.
+            const parsed = parseScoreLine(line, worker.current.whiteToMove);
+            if (parsed !== null) {
+                worker.current.score = parsed.cp;
+                worker.current.mateIn = parsed.mateIn;
+            }
         } else if (line.startsWith('bestmove')) {
-            const { score } = worker.current;
+            const { score, mateIn } = worker.current;
             finishCurrent(worker,
                 score === null ? new Error('engine reported no score') : null,
-                score);
+                { cp: score, mateIn });
         }
     });
 }
@@ -117,7 +125,7 @@ function createWorker(slot) {
         rl: readline.createInterface({ input: child.stdout }),
         phase: 'handshake', // 'handshake' | 'ready'
         dying: false,
-        current: null,      // { resolve, reject, timer, score, whiteToMove }
+        current: null,      // { resolve, reject, timer, score, mateIn, whiteToMove }
     };
 
     attachLineHandler(worker);
@@ -144,6 +152,7 @@ function dispatchToWorker(worker, request) {
         reject: request.reject,
         whiteToMove: whiteToMoveFrom(request.fen),
         score: null,
+        mateIn: null,
         timer: setTimeout(() => {
             const err = new Error('engine timed out');
             err.timedOut = true;

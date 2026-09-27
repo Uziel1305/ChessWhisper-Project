@@ -30,10 +30,11 @@ function deferred() {
     return { promise, resolve, reject };
 }
 
-// Resolves the engine call for `ply` (1-based) with `cp`, then lets the
-// continuation run.
-async function answer(ply, cp) {
-    pending[ply - 1].resolve(cp);
+// Resolves the engine call for `ply` (1-based) with `cp` — and, for a forced
+// mate, its signed white-perspective distance — then lets the continuation
+// run. Same { cp, mateIn } shape engineClient.evaluate() resolves.
+async function answer(ply, cp, mateIn = null) {
+    pending[ply - 1].resolve({ cp, mateIn });
     await new Promise((resolve) => setImmediate(resolve));
 }
 
@@ -240,6 +241,58 @@ describe('engine evaluation in the move pipeline', () => {
 
             expect(evalCalls).toBe(4);
             expect(engineClient.evaluate.mock.calls.length).toBe(4);
+        });
+    });
+
+    // mateIn rides the same single evaluation as evalCp — no extra engine call.
+    // White-perspective and signed: positive = White mates, negative = Black.
+    describe('mate distance', () => {
+        it('an eval game sends the same signed mateIn to both players', async () => {
+            const game = await newGame('eval');
+            await play(game, ['e2e4', 'e7e5']);
+            await answer(1, 10000, 3);   // White mates in 3
+            await answer(2, -10000, -2); // Black mates in 2
+
+            expect(engineClient.evaluate).toHaveBeenCalledTimes(2);
+            const events = evalUpdateEvents();
+            for (const [ply, evalCp, mateIn] of [[1, 10000, 3], [2, -10000, -2]]) {
+                const forPly = events.filter(([, e]) => e.ply === ply);
+                expect(forPly.map(([userId]) => userId).sort()).toEqual(
+                    [String(game.whiteUserId), String(game.blackUserId)].sort()
+                );
+                for (const [, event] of forPly) {
+                    expect(event).toEqual({ type: 'eval.update', ply, evalCp, mateIn });
+                }
+            }
+        });
+
+        it('an evaluation without a mate carries no mateIn, even right after one that had it', async () => {
+            const game = await newGame('eval');
+            await play(game, ['e2e4', 'e7e5']);
+            await answer(1, 10000, 3);
+            await answer(2, 250);
+
+            // Exact equality: the key is absent, not null — a mate from the
+            // previous ply is never carried forward onto this one.
+            const ply2 = evalUpdateEvents().filter(([, e]) => e.ply === 2).map(([, e]) => e);
+            expect(ply2).toEqual([
+                { type: 'eval.update', ply: 2, evalCp: 250 },
+                { type: 'eval.update', ply: 2, evalCp: 250 },
+            ]);
+        });
+
+        it('a feedback game ignores mateIn and classifies from the clamped evalCp', async () => {
+            const game = await newGame('feedback');
+            await play(game, ['e2e4', 'e7e5']);
+            await answer(1, 30);
+            // Black's reply walks into White's forced mate: 30 -> 10000 from
+            // White's side is a 9970-centipawn loss for Black.
+            await answer(2, 10000, 3);
+
+            expect(feedbackEvents()).toEqual([
+                [String(game.blackUserId), { type: 'move.feedback', ply: 2, classification: 'blunder', cpLoss: 9970 }],
+            ]);
+            expect(evalUpdateEvents()).toEqual([]);
         });
     });
 
@@ -491,7 +544,7 @@ describe('engine evaluation in the move pipeline', () => {
                 call += 1;
                 return call === 2
                     ? Promise.reject(new Error('one bad call'))
-                    : Promise.resolve(call === 1 ? 30 : call === 3 ? 100 : 400);
+                    : Promise.resolve({ cp: call === 1 ? 30 : call === 3 ? 100 : 400, mateIn: null });
             });
             const game = await newGame('feedback');
 

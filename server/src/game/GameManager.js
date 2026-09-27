@@ -264,9 +264,13 @@ function moverOf(ply) {
 // otherwise take down the process over a missing evaluation.
 async function evaluatePly(game, ply, fen, moverUserId) {
     try {
-        const cp = await engineClient.evaluate(fen);
+        // Only cp is stored: it's what classification compares ply to ply.
+        // mateIn (signed, white-perspective, null if no forced mate) belongs to
+        // this ply's bar value alone, so it's passed straight through rather
+        // than kept on the game.
+        const { cp, mateIn } = await engineClient.evaluate(fen);
         game.evals.set(ply, cp);
-        publishEvaluation(game, ply, moverUserId);
+        publishEvaluation(game, ply, moverUserId, mateIn);
     } catch (err) {
         // A failed evaluation is a gap, not an error the game can act on: the
         // move is committed and delivered either way. That ply, and the one
@@ -279,13 +283,15 @@ async function evaluatePly(game, ply, fen, moverUserId) {
 // not on what has been computed: a player holding an assist their opponent lacks
 // has an unfair advantage (CLAUDE.md, `mode`), so an eval game never carries a
 // verdict and a feedback game never carries the bar value.
-function publishEvaluation(game, ply, moverUserId) {
+function publishEvaluation(game, ply, moverUserId, mateIn) {
     const hub = require('../ws/hub');
 
     if (game.mode === 'eval') {
         // Both players see the same bar, and it needs no neighbouring result, so
-        // it goes out the moment it arrives.
+        // it goes out the moment it arrives. mateIn is added only when there is
+        // one, so an ordinary update keeps its plain { type, ply, evalCp } shape.
         const event = { type: 'eval.update', ply, evalCp: game.evals.get(ply) };
+        if (mateIn !== null) event.mateIn = mateIn;
         hub.sendToUser(game.whiteUserId, event);
         hub.sendToUser(game.blackUserId, event);
     }

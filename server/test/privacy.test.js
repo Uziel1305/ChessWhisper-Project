@@ -110,7 +110,8 @@ describe('feedback privacy', () => {
         queue.clear();
         gameId = undefined;
         engineClient.evaluate.mockReset();
-        EVALS.forEach((cp) => engineClient.evaluate.mockResolvedValueOnce(cp));
+        // Same { cp, mateIn } shape engineClient.evaluate() resolves.
+        EVALS.forEach((cp) => engineClient.evaluate.mockResolvedValueOnce({ cp, mateIn: null }));
     });
 
     afterEach(async () => {
