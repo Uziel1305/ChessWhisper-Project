@@ -4,6 +4,7 @@ const movesRepo = require('../db/repositories/moves.repo');
 const usersRepo = require('../db/repositories/users.repo');
 const ratingsRepo = require('../db/repositories/ratings.repo');
 const feedbackRepo = require('../db/repositories/feedback.repo');
+const { withTransaction } = require('../db/transaction');
 const elo = require('../rating/elo');
 const Game = require('./Game');
 const Clock = require('./clock');
@@ -34,6 +35,9 @@ const EVALUATED_MODES = new Set(['eval', 'feedback']);
 //                              Filled as results arrive, in any order.
 //               classified:    Set{ ply }         ← RAM only. Plies whose verdict
 //                              has been sent, so none is ever sent twice.
+//               ended:         false               ← RAM only. Set once by
+//                              endGame, so a second call on a reference a
+//                              caller already held (see endGame) is a no-op.
 //            }
 const games = new Map();
 
@@ -68,6 +72,8 @@ function onFlag(gameId, expiredColor) {
     endGame(game, {
         result: expiredColor === 'white' ? '0-1' : '1-0',
         reason: 'timeout',
+    }).catch((err) => {
+        console.error('endGame failed for timeout on game', gameId, ':', err);
     });
 }
 
@@ -356,6 +362,19 @@ function scoreForWhite(result) {
 async function endGame(game, { result, reason }) {
     const hub = require('../ws/hub');
 
+    // applyMove holds its own reference to `game` across its
+    // `await movesRepo.insert(...)` gap (above), and removing a game from the
+    // `games` map below does not invalidate a reference a caller already
+    // holds. If a disconnect/resign/timeout for the same game reaches this
+    // function first, applyMove still calls endGame again on that same object
+    // once its await resolves. This guard, checked-and-set synchronously
+    // before anything else runs, makes the second call a no-op instead of a
+    // second Elo application and a duplicate rating_history row: whichever
+    // call reaches this line first always finishes reading and setting it
+    // before either call's next await, since Node never interleaves two
+    // synchronous stretches of code.
+    if (game.ended) return null;
+    game.ended = true;
 
     // Stops both clocks' pending flag timers immediately — otherwise a clock from
     // a game that just ended by checkmate/resign would still fire its setTimeout
@@ -393,14 +412,40 @@ async function endGame(game, { result, reason }) {
     const whiteNewRating = whiteUser.rating + whiteDelta;
     const blackNewRating = blackUser.rating + blackDelta;
 
-    // Broadcast before persisting, which is the opposite of applyMove — and the
-    // difference is deliberate. A move that reaches both boards without reaching
-    // the table leaves the game continuing from a state the record does not
-    // have, and the divergence compounds. An ending continues into nothing. If
-    // the write fails, the worst case is a games row left with a null result,
-    // while the alternative is two players stranded on a dead board with no idea
-    // why their moves stopped working.
+    // Persisted before broadcasting, the same ordering applyMove already uses
+    // for move.committed. This used to be reversed on purpose — broadcast
+    // first, since an ending "continues into nothing" so a failed write looked
+    // harmless next to two players stranded on a dead board. In practice that
+    // ordering let clients see (and callers observe, including tests awaiting
+    // this event) a result and rating change before the database had actually
+    // committed either, which is exactly the window that produced this
+    // function's abandon/disconnect races: a game or user row deleted, or the
+    // connection pool closed, in the gap between "clients were told" and
+    // "the write actually ran". Persisting first closes that gap — by the
+    // time either player hears game.end, the row updates and the
+    // rating_history insert are already durable.
     //
+    // One transaction, so the five writes land together or not at all. They
+    // used to be five independent queries on the shared pool: when one failed,
+    // the rest had already committed, leaving e.g. a finished game with ratings
+    // applied and no history row (gameManager.test.js reproduces exactly that).
+    // Sequential rather than Promise.all because a single connection runs one
+    // query at a time anyway. Every write takes `client`, never the pool — see
+    // withTransaction for why.
+    await withTransaction(async (client) => {
+        await gamesRepo.finish({ id: game.id, result, reason }, client);
+        await usersRepo.updateRating(game.whiteUserId, whiteNewRating, client);
+        await usersRepo.updateRating(game.blackUserId, blackNewRating, client);
+        await ratingsRepo.recordRatingChange({
+            gameId: game.id, userId: game.whiteUserId,
+            ratingBefore: whiteUser.rating, ratingAfter: whiteNewRating,
+        }, client);
+        await ratingsRepo.recordRatingChange({
+            gameId: game.id, userId: game.blackUserId,
+            ratingBefore: blackUser.rating, ratingAfter: blackNewRating,
+        }, client);
+    });
+
     // Each side gets its own payload now, not a shared object like before
     // CW-134: the rating delta genuinely differs between the two players, so
     // there is no longer a single event that is equally true for both.
@@ -414,23 +459,6 @@ async function endGame(game, { result, reason }) {
     };
     hub.sendToUser(game.whiteUserId, whiteEvent);
     hub.sendToUser(game.blackUserId, blackEvent);
-
-    // Same "broadcast before persisting" reasoning extends to the rating
-    // writes: a failure here is no worse than a failed gamesRepo.finish
-    // already was, and both players have already seen the outcome either way.
-    await Promise.all([
-        gamesRepo.finish({ id: game.id, result, reason }),
-        usersRepo.updateRating(game.whiteUserId, whiteNewRating),
-        usersRepo.updateRating(game.blackUserId, blackNewRating),
-        ratingsRepo.recordRatingChange({
-            gameId: game.id, userId: game.whiteUserId,
-            ratingBefore: whiteUser.rating, ratingAfter: whiteNewRating,
-        }),
-        ratingsRepo.recordRatingChange({
-            gameId: game.id, userId: game.blackUserId,
-            ratingBefore: blackUser.rating, ratingAfter: blackNewRating,
-        }),
-    ]);
 
     return { white: whiteEvent, black: blackEvent };
 }

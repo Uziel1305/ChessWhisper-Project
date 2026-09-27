@@ -53,8 +53,11 @@ async function findById(id) {
 // call — a resignation racing a checkmate, a timeout arriving after a mate —
 // updates nothing rather than overwriting the real outcome with a later one.
 // An undefined return is how the caller learns the game was already over.
-async function finish({ id, result, reason }) {
-    const updated = await pool.query(
+//
+// `db` defaults to the shared pool. endGame passes a transaction's client
+// instead, so this write commits or rolls back together with the rating writes.
+async function finish({ id, result, reason }, db = pool) {
+    const updated = await db.query(
         `UPDATE games
             SET result = $2, reason = $3, ended_at = now()
           WHERE id = $1 AND result IS NULL

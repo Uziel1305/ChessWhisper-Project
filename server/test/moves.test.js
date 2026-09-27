@@ -5,7 +5,11 @@ const WebSocket = require('ws');
 const app = require('../src/app');
 const pool = require('../src/db/pool');
 const queue = require('../src/matchmaking/queue');
-const { attachHub } = require('../src/ws/hub');
+const { attachHub, closeHub } = require('../src/ws/hub');
+const gamesRepo = require('../src/db/repositories/games.repo');
+const usersRepo = require('../src/db/repositories/users.repo');
+const GameManager = require('../src/game/GameManager');
+const { expectServerError } = require('./helpers/serverErrors');
 
 
 
@@ -19,10 +23,34 @@ function accessTokenFor(userId) {
 let server;
 let port;
 const openClients = [];
+const activeGames = [];
 
 function connect(token) {
     const client = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
         headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // The socket's real stream, recorded in arrival order by one permanent
+    // listener attached before the socket opens. The previous helpers attached a
+    // listener per read instead, which meant an event arriving while nothing was
+    // waiting was dropped, and an event arriving while something *was* waiting
+    // satisfied that read whoever it belonged to. `move.committed` is broadcast
+    // to both players, so "the next message on my socket" is not "the reply to
+    // my move" — white receives black's commits too.
+    client.events = [];
+    // How much of `events` the test has consumed. Reads are strictly in order
+    // and never skip: `events` is append-only, and the cursor only moves
+    // forward, so a stale or unexpected event is handed to the test and fails
+    // its assertion rather than being searched past.
+    client.cursor = 0;
+    client.waiters = [];
+    client.on('message', (raw) => {
+        client.events.push(JSON.parse(raw));
+        // Woken in the same tick the event is buffered, and by the recorder
+        // itself rather than by a second 'message' listener. That is what makes
+        // take() below race-free: a waiter can never be parked while an
+        // unconsumed event already sits in the buffer.
+        for (const wake of client.waiters.splice(0)) wake();
     });
     openClients.push(client);
 
@@ -33,32 +61,35 @@ function connect(token) {
 }
 
 
-function nextEvent(client, timeoutMs = 1000) {
-    return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve(null), timeoutMs);
-        client.once('message', (raw) => {
-            clearTimeout(timer);
-            resolve(JSON.parse(raw));
-        });
-    });
-}
+// The next unconsumed event on this socket, or null if none arrives in time.
+// Advances the cursor by exactly one: no matching, no searching. The caller
+// asserts what it got, so an event the test did not expect surfaces as a failed
+// assertion instead of being silently skipped.
+function take(client, timeoutMs = 1000) {
+    // Synchronous fast path. Checked in the same uninterrupted stretch as the
+    // registration below, so nothing can arrive in between.
+    if (client.cursor < client.events.length) {
+        return Promise.resolve(client.events[client.cursor++]);
+    }
 
-// Collects the next `count` events, or whatever arrived before the timeout. A
-// move that ends the game sends two — move.committed, then game.end — so a
-// single-shot listener would silently miss the second.
-function nextEvents(client, count, timeoutMs = 1000) {
-    const events = [];
     return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve(events), timeoutMs);
-        const onMessage = (raw) => {
-            events.push(JSON.parse(raw));
-            if (events.length === count) {
-                clearTimeout(timer);
-                client.off('message', onMessage);
-                resolve(events);
+        const timer = setTimeout(() => {
+            client.waiters = client.waiters.filter((w) => w !== attempt);
+            resolve(null);
+        }, timeoutMs);
+
+        function attempt() {
+            if (client.cursor >= client.events.length) {
+                // Another take() on this socket was woken by the same event and
+                // consumed it first. Keep waiting rather than resolving empty.
+                client.waiters.push(attempt);
+                return;
             }
-        };
-        client.on('message', onMessage);
+            clearTimeout(timer);
+            resolve(client.events[client.cursor++]);
+        }
+
+        client.waiters.push(attempt);
     });
 }
 
@@ -84,19 +115,43 @@ async function matchedPair(prefix) {
     const b = await connect(accessTokenFor(idB));
 
     const join = JSON.stringify({ type: 'queue.join', mode: 'classic', timeControl: 600000 });
-    const events = Promise.all([nextEvent(a), nextEvent(b)]);
+    const events = Promise.all([take(a), take(b)]);
     a.send(join);
     b.send(join);
-    const [eventA] = await events;
+    const [eventA, eventB] = await events;
+
+    // Both are consumed, so both are checked: an unexpected first event on
+    // either socket must fail here rather than be read as a match.
+    expect(eventA.type).toBe('match.found');
+    expect(eventB.type).toBe('match.found');
 
     const white = eventA.color === 'white' ? a : b;
     const black = eventA.color === 'white' ? b : a;
+    activeGames.push({ gameId: eventA.gameId, white, black });
     return { white, black, gameId: eventA.gameId };
 }
 
 
+// Plays one move and consumes the resulting move.committed from *both* players,
+// asserting each is the commit for this move. move.committed is a broadcast, so
+// draining only the mover would leave the opponent's copy unread, and the next
+// strict read from that socket would take the leftover.
+async function commitMove({ white, black, gameId, uci, mover }) {
+    const both = Promise.all([take(white), take(black)]);
+    mover.send(JSON.stringify({ type: 'game.move', gameId, uci }));
+    const [whiteEvent, blackEvent] = await both;
+
+    expect(whiteEvent).toMatchObject({ type: 'move.committed', uci });
+    expect(blackEvent).toMatchObject({ type: 'move.committed', uci });
+}
+
+
+// Sends a move and returns the next event on the mover's socket — whatever it
+// is. It deliberately does not go looking for this move's own commit: the caller
+// asserts on what came back, so a stale event is a failure rather than something
+// this helper quietly steps over.
 function move(client, gameId, uci) {
-    const event = nextEvent(client);
+    const event = take(client);
     client.send(JSON.stringify({ type: 'game.move', gameId, uci }));
     return event;
 }
@@ -104,9 +159,24 @@ function move(client, gameId, uci) {
 
 
 
+// Run before as well as after, as privacy.test.js and evaluation.test.js do: a
+// run that dies part-way never reaches its afterAll, and the rows it leaves
+// behind make the next run's registrations collide on username (409).
+// moves cascades from games, so deleting the games takes the moves with it. The
+// games still have to go before the users, which do not cascade.
+async function deleteTestUsers() {
+    await pool.query(`
+        DELETE FROM games
+         WHERE white_user_id IN (SELECT id FROM users WHERE username LIKE 'MovesTestuser_%')
+            OR black_user_id IN (SELECT id FROM users WHERE username LIKE 'MovesTestuser_%')
+    `);
+    await pool.query("DELETE FROM users WHERE username LIKE 'MovesTestuser_%'");
+}
+
 describe('game.move', () => {
-    
+
     beforeAll(async () => {
+        await deleteTestUsers();
         server = http.createServer(app);
         attachHub(server);
         await new Promise((resolve) => server.listen(0, resolve));
@@ -120,19 +190,45 @@ describe('game.move', () => {
     });
 
     afterAll(async () => {
+        // Five of the tests above deliberately leave their game unfinished
+        // (one move, no resign/checkmate/abandon). Terminating those sockets
+        // below fires hub.js's fire-and-forget gameManager.abandon() for each
+        // one, racing the DELETE/pool.end() calls that follow — the second,
+        // dominant source of the abandon-on-disconnect race (the first being
+        // GameManager.endGame's own persist/broadcast ordering, fixed there).
+        // Resigning here first, and awaiting it, means each one is already fully
+        // persisted by the time we get to teardown. Already-ended games
+        // (checkmate/resign/abandon tests) are skipped — GameManager has already
+        // removed them from its live map.
+        //
+        // Ended through GameManager rather than over a socket, which is how
+        // privacy.test.js already does it. Two reasons. It resolves only once
+        // every write endGame makes has finished, where the socket version
+        // awaited a *reply* and so continued on a 1000ms timeout whether the
+        // resign had been processed or not — the error gate caught that escape
+        // hatch letting `game.resign failed: Cannot use a pool after calling end
+        // on the pool` through. And it reads no stream, which matters now that
+        // reads are strictly in order: these sockets legitimately hold
+        // unconsumed broadcasts (their tests only ever read the mover's socket),
+        // so a strict read here would take a stale commit instead of the ending.
+        for (const { gameId } of activeGames) {
+            const live = GameManager.get(gameId);
+            if (!live) continue;
+            await GameManager.resign({ gameId, userId: live.whiteUserId });
+        }
+
+        // The loop above only reaches games matchedPair recorded. A test that
+        // fails before that (e.g. match.found arriving late) still leaves a live
+        // game on the server; closeHub() ends and drains it before any row is
+        // deleted.
+        await closeHub();
+
         for (const client of openClients) {
             client.terminate();
         }
         await new Promise((resolve) => server.close(resolve));
 
-        // moves cascades from games, so deleting the games takes the moves with
-        // it. The games still have to go before the users, which do not cascade.
-        await pool.query(`
-            DELETE FROM games
-             WHERE white_user_id IN (SELECT id FROM users WHERE username LIKE 'MovesTestuser_%')
-                OR black_user_id IN (SELECT id FROM users WHERE username LIKE 'MovesTestuser_%')
-        `);
-        await pool.query("DELETE FROM users WHERE username LIKE 'MovesTestuser_%'");
+        await deleteTestUsers();
         await pool.end();
     });
 
@@ -169,6 +265,10 @@ describe('game.move', () => {
     it('ignores an illegal move and leaves the position unchanged', async () => {
         const { white, gameId } = await matchedPair('MovesTestuser_illegal');
 
+        // Refusing the move is only half of it — applyMove is also expected to
+        // say why it refused. Declaring the log line asserts that it does, and
+        // keeps this deliberate error out of the unexpected-error gate.
+        expectServerError(/^game\.move illegal:/);
         expect(await move(white, gameId, 'e2e5')).toBeNull();
 
         const accepted = await move(white, gameId, 'e2e4');
@@ -182,6 +282,7 @@ describe('game.move', () => {
         // against the board would commit it. Only comparing the sender against
         // the side to move catches this — which is why it cannot be tested
         // against Game.js alone.
+        expectServerError(/^game\.move out of turn:/);
         expect(await move(black, gameId, 'e2e4')).toBeNull();
 
         const accepted = await move(white, gameId, 'e2e4');
@@ -197,6 +298,7 @@ describe('game.move', () => {
         // Neither illegal nor out of turn — e2e4 is legal and it is white's
         // turn. Only membership of the game rejects this, and nothing else here
         // would catch a server that skipped that check.
+        expectServerError(/^game\.move from a non-participant:/);
         expect(await move(outsider, gameId, 'e2e4')).toBeNull();
 
         const accepted = await move(white, gameId, 'e2e4');
@@ -210,9 +312,10 @@ describe('game.move', () => {
     it('delivers the move to the opponent as well as the mover', async () => {
         const { white, black, gameId } = await matchedPair('MovesTestuser_broadcast');
 
-        // Both listeners attach before the send, or the opponent's copy can
-        // arrive before anything is listening for it.
-        const events = Promise.all([nextEvent(white), nextEvent(black)]);
+        // Both reads are set up before the send. With the buffered stream this is
+        // no longer load-bearing — an event arriving first is recorded and taken
+        // afterwards — but it keeps the two reads symmetric.
+        const events = Promise.all([take(white), take(black)]);
         white.send(JSON.stringify({ type: 'game.move', gameId, uci: 'e2e4' }));
         const [moverEvent, opponentEvent] = await events;
 
@@ -235,21 +338,34 @@ describe('game.move', () => {
         // Fool's mate — the shortest checkmate in chess, four half-moves. Short
         // enough to play through the socket, so this exercises the real path
         // rather than a position constructed behind GameManager's back.
-        await move(white, gameId, 'f2f3');
-        await move(black, gameId, 'e7e5');
-        await move(white, gameId, 'g2g4');
+        //
+        // Both sockets consume and check every commit, not just the mover's.
+        // move.committed is a broadcast, so a move that only drained the mover
+        // would leave the opponent's copy unread, and the next strict read from
+        // that socket would take the leftover instead of what it was waiting for
+        // — the exact confusion that made this test flaky.
+        await commitMove({ white, black, gameId, uci: 'f2f3', mover: white });
+        await commitMove({ white, black, gameId, uci: 'e7e5', mover: black });
+        await commitMove({ white, black, gameId, uci: 'g2g4', mover: white });
 
-        // Black delivers the mate, so white is the one to watch: they receive
-        // the move and then the ending, in that order.
-        const events = nextEvents(white, 2);
-        await move(black, gameId, 'd8h4');
-        const [committed, ended] = await events;
+        // Black delivers the mate. Both players get the commit and then the
+        // ending, and the ordering is asserted by consuming the stream in order:
+        // the commit has to be the next event on each socket, and the ending the
+        // one after it.
+        const commits = Promise.all([take(white), take(black)]);
+        black.send(JSON.stringify({ type: 'game.move', gameId, uci: 'd8h4' }));
+        const [whiteCommit, blackCommit] = await commits;
+        expect(whiteCommit).toMatchObject({ type: 'move.committed', uci: 'd8h4' });
+        expect(blackCommit).toMatchObject({ type: 'move.committed', uci: 'd8h4' });
 
-        expect(committed.type).toBe('move.committed');
-        expect(ended.type).toBe('game.end');
+        const [whiteEnd, blackEnd] = await Promise.all([take(white), take(black)]);
         // Black mated, so black wins. PGN notation, matching games.result's CHECK.
-        expect(ended.result).toBe('0-1');
-        expect(ended.reason).toBe('checkmate');
+        // Both are asserted: neither player may be told something different, and
+        // consuming one without checking it would be exactly the blind spot this
+        // rewrite removes. result/reason are the two fields that must agree —
+        // newRating/ratingDelta legitimately differ per player.
+        expect(whiteEnd).toMatchObject({ type: 'game.end', result: '0-1', reason: 'checkmate' });
+        expect(blackEnd).toMatchObject({ type: 'game.end', result: '0-1', reason: 'checkmate' });
     });
 
     it('ends the game when a player resigns', async () => {
@@ -257,7 +373,7 @@ describe('game.move', () => {
 
         // No move.committed here — resignation is not a move, so the opponent
         // receives game.end on its own.
-        const ended = nextEvent(black);
+        const ended = take(black);
         white.send(JSON.stringify({ type: 'game.resign', gameId }));
 
         const event = await ended;
@@ -270,10 +386,18 @@ describe('game.move', () => {
     it('ends the game as a loss for whoever disconnects mid-game', async () => {
         const { white, black, gameId } = await matchedPair('MovesTestuser_abandon');
 
+        // Regression for the abandon-on-disconnect race: hub.js's disconnect
+        // handler logs any abandon()/endGame() failure under this exact
+        // message. The old broadcast-before-persist ordering let game.end
+        // reach the client before the DB writes it depends on had committed,
+        // which is what let test cleanup (and, in principle, anything else
+        // racing the DB) surface as this log line.
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
         // terminate(), not close(): this stands in for a crash/force-stop/lost
         // network, not a graceful leave — the abrupt case the disconnect
         // handler exists for. Either way the server sees a 'close' event.
-        const ended = nextEvent(black);
+        const ended = take(black);
         white.terminate();
 
         const event = await ended;
@@ -281,6 +405,32 @@ describe('game.move', () => {
         // Whoever disconnected loses, so white dropping is a win for black.
         expect(event.result).toBe('0-1');
         expect(event.reason).toBe('abandoned');
+
+        // The event above must only ever arrive after persistence commits, not
+        // before it — so by now the DB already agrees with what the client
+        // was just told.
+        const row = await gamesRepo.findById(gameId);
+        expect(row.result).toBe('0-1');
+        expect(row.reason).toBe('abandoned');
+
+        // Equal starting ratings (1000), zero rated games each, decisive
+        // result — same ±16 magnitude as GameManager's timeout test.
+        const whiteUser = await usersRepo.findById(row.white_user_id);
+        const blackUser = await usersRepo.findById(row.black_user_id);
+        expect(whiteUser.rating).toBe(984);
+        expect(blackUser.rating).toBe(1016);
+
+        const historyRows = (await pool.query(
+            'SELECT user_id FROM rating_history WHERE game_id = $1',
+            [gameId]
+        )).rows;
+        expect(historyRows).toHaveLength(2);
+
+        expect(errorSpy).not.toHaveBeenCalledWith(
+            'abandon-on-disconnect failed:',
+            expect.anything()
+        );
+        errorSpy.mockRestore();
     });
 
 })
