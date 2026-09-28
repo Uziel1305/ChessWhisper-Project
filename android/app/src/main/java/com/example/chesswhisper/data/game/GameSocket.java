@@ -1,6 +1,7 @@
 package com.example.chesswhisper.data.game;
 
 import com.example.chesswhisper.BuildConfig;
+import com.example.chesswhisper.data.game.model.EvalUpdate;
 import com.example.chesswhisper.data.game.model.GameEnd;
 import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.game.model.MoveCommitted;
@@ -33,6 +34,7 @@ public final class GameSocket {
     public interface GameListener {
         void onMoveCommitted(MoveCommitted event);
         void onMoveFeedback(MoveFeedback event);
+        void onEvalUpdate(EvalUpdate event);
         void onGameEnd(GameEnd event);
         void onFailure(Throwable t);
     }
@@ -110,6 +112,11 @@ public final class GameSocket {
                             gameListener.onMoveFeedback(new Gson().fromJson(json, MoveFeedback.class));
                         }
                         break;
+                    case "eval.update":
+                        if (gameListener != null) {
+                            gameListener.onEvalUpdate(new Gson().fromJson(json, EvalUpdate.class));
+                        }
+                        break;
                     case "game.end":
                         if (gameListener != null) {
                             gameListener.onGameEnd(new Gson().fromJson(json, GameEnd.class));
@@ -151,6 +158,19 @@ public final class GameSocket {
         resign.addProperty("type", "game.resign");
         resign.addProperty("gameId", gameId);
         webSocket.send(resign.toString());
+    }
+
+    // Called when the screen that started matchmaking goes away for good without
+    // a match (Home finished by Back). Closing the socket is what takes the player
+    // out of the server's waiting list — the server's close handler runs
+    // queue.leave — so they can't be matched later as a ghost who never sees the
+    // game. Only acts if `owner` is still the current listener: a screen that has
+    // already been superseded by a newer matchmaking session must never tear that
+    // newer session's socket down.
+    public void cancelMatchmaking(MatchListener owner) {
+        if (owner != null && owner == matchListener) {
+            disconnect();
+        }
     }
 
     // Called when GameActivity is actually leaving for good (game over, resigned,

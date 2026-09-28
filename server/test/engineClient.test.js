@@ -60,7 +60,9 @@ describe('engineClient.evaluate', () => {
         });
         process.env.ENGINE_URL = stub.url;
 
-        await expect(evaluate(FEN, 150)).resolves.toBe(27);
+        // mateIn is always present in what evaluate() resolves — null when the
+        // facade's body omitted it — so callers see one shape, never a bare number.
+        await expect(evaluate(FEN, 150)).resolves.toEqual({ cp: 27, mateIn: null });
 
         expect(stub.requests).toEqual([
             { method: 'POST', url: '/evaluate', body: { fen: FEN, budgetMs: 150 } },
@@ -106,6 +108,26 @@ describe('engineClient.evaluate', () => {
         process.env.ENGINE_URL = stub.url;
 
         await expect(evaluate(FEN)).rejects.toThrow('no integer cp');
+    });
+
+    it('passes a reported mate distance through unchanged', async () => {
+        stub = await startStub((req, res) => {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ cp: -10000, mateIn: -3 }));
+        });
+        process.env.ENGINE_URL = stub.url;
+
+        await expect(evaluate(FEN)).resolves.toEqual({ cp: -10000, mateIn: -3 });
+    });
+
+    it('rejects when mateIn is present but not an integer', async () => {
+        stub = await startStub((req, res) => {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ cp: 10000, mateIn: 'soon' }));
+        });
+        process.env.ENGINE_URL = stub.url;
+
+        await expect(evaluate(FEN)).rejects.toThrow('non-integer mateIn');
     });
 
     it('rejects when nothing is listening', async () => {
@@ -178,8 +200,8 @@ describe('engineClient.evaluate', () => {
 
             now += COOLDOWN_MS;
             healthy = true;
-            await expect(evaluate(FEN)).resolves.toBe(12); // the probe
-            await expect(evaluate(FEN)).resolves.toBe(12); // circuit closed again
+            await expect(evaluate(FEN)).resolves.toEqual({ cp: 12, mateIn: null }); // the probe
+            await expect(evaluate(FEN)).resolves.toEqual({ cp: 12, mateIn: null }); // circuit closed again
             expect(stub.requests).toHaveLength(3);
         });
 
@@ -196,7 +218,7 @@ describe('engineClient.evaluate', () => {
 
             now += COOLDOWN_MS;
             healthy = true;
-            await expect(evaluate(FEN)).resolves.toBe(12);
+            await expect(evaluate(FEN)).resolves.toEqual({ cp: 12, mateIn: null });
         });
 
         it('lets only one probe through while it is in flight', async () => {
@@ -224,14 +246,14 @@ describe('engineClient.evaluate', () => {
             expect(stub.requests).toHaveLength(1);
 
             release();
-            await expect(probe).resolves.toBe(5);
+            await expect(probe).resolves.toEqual({ cp: 5, mateIn: null });
         });
 
         it('never opens while the engine keeps answering', async () => {
             healthy = true;
             await startSwitchableStub();
 
-            for (let i = 0; i < 5; i++) await expect(evaluate(FEN)).resolves.toBe(12);
+            for (let i = 0; i < 5; i++) await expect(evaluate(FEN)).resolves.toEqual({ cp: 12, mateIn: null });
             expect(stub.requests).toHaveLength(5);
         });
     });

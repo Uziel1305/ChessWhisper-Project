@@ -144,6 +144,45 @@
                 android:textAppearance="?attr/textAppearanceBodyMedium"
                 android:textColor="?attr/colorOnSurfaceVariant" />
 
+            <!-- CW-155: which assist features the next game has. Exactly one is
+                 always selected (Classic by default); what's selected is the mode
+                 queue.join sends. The selection itself lives in HomeViewModel, and
+                 the labels are set from GameMode at runtime (tools:text is preview
+                 only), so the vocabulary is named in exactly one place. -->
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/modePicker"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:checkedButton="@id/modeClassicButton"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/modeClassicButton"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    tools:text="@string/mode_classic" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/modeEvalButton"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    tools:text="@string/mode_eval" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/modeFeedbackButton"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    tools:text="@string/mode_feedback" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
             <!-- Disabled until there is a matchmaking screen to start. -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playButton"

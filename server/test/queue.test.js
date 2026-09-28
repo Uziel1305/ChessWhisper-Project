@@ -202,8 +202,106 @@ describe('matchmaking queue', () => {
         expect(eventEval).toBeNull();
     });
 
+    // CW-156. An unrecognised mode must be answered, not queued: keying a
+    // waiting list by a typo would leave the player waiting alone forever with
+    // no error to explain it (CLAUDE.md, the `mode` decision).
+    it('answers an unrecognised mode with queue.rejected instead of queuing it', async () => {
+        const id = await registerPlayer('QueueTestuser_bogus_solo');
+        const client = await connect(accessTokenFor(id));
 
+        const event = nextEvent(client);
+        client.send(JSON.stringify({ type: 'queue.join', mode: 'blitz', timeControl: 600000 }));
+
+        expect(await event).toEqual({
+            type: 'queue.rejected',
+            error: 'unknown_mode',
+            message: expect.stringContaining('blitz'),
+        });
+    });
+
+    it('never matches two players who both sent the same unrecognised mode', async () => {
+        const idA = await registerPlayer('QueueTestuser_bogus_a');
+        const idB = await registerPlayer('QueueTestuser_bogus_b');
+        const a = await connect(accessTokenFor(idA));
+        const b = await connect(accessTokenFor(idB));
+
+        // If the first join had keyed a waiting list by 'blitz', the second
+        // would complete a pair and both would get match.found instead.
+        const join = JSON.stringify({ type: 'queue.join', mode: 'blitz', timeControl: 600000 });
+        const firstA = nextEvent(a);
+        a.send(join);
+        expect(await firstA).toMatchObject({ type: 'queue.rejected', error: 'unknown_mode' });
+
+        const firstB = nextEvent(b);
+        b.send(join);
+        expect(await firstB).toMatchObject({ type: 'queue.rejected', error: 'unknown_mode' });
+
+        // And nothing follows the rejection — in particular no late match.found.
+        const [laterA, laterB] = await Promise.all([nextEvent(a), nextEvent(b)]);
+        expect(laterA).toBeNull();
+        expect(laterB).toBeNull();
+    });
+
+    // The contract the Android client relies on to leave the queue (CW-157's
+    // ghost-queue fix): it has no queue.leave of its own and simply closes its
+    // matchmaking socket when Home goes away. The socket closing must take the
+    // player out of the waiting list — otherwise a later joiner is matched with
+    // someone who is no longer there, which is exactly the bug that was found.
+    it('removes a waiting player whose socket closes, so nobody is matched with them', async () => {
+        const idLeaver = await registerPlayer('QueueTestuser_leaver');
+        const idLater = await registerPlayer('QueueTestuser_later');
+
+        const leaver = await connect(accessTokenFor(idLeaver));
+        leaver.send(JSON.stringify({ type: 'queue.join', mode: 'classic', timeControl: 600000 }));
+        // No reply is sent to a player who is merely waiting, so wait a moment
+        // for the join to be processed before the socket goes.
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // A clean close, like the app's: resolves once the closing handshake is
+        // done, by which point the server has run its own close handler.
+        await new Promise((resolve) => {
+            leaver.once('close', resolve);
+            leaver.close(1000, 'leaving');
+        });
+
+        const later = await connect(accessTokenFor(idLater));
+        const event = nextEvent(later);
+        later.send(JSON.stringify({ type: 'queue.join', mode: 'classic', timeControl: 600000 }));
+
+        // Waiting, not matched with the player who left.
+        expect(await event).toBeNull();
+    });
 })
+
+// CW-156: the same rule at the queue itself, called directly. Its own
+// beforeEach for the same reason as 'rating-based matching' below — a join
+// that *did* wrongly queue someone would otherwise leak into the next test.
+describe('rejecting an unrecognised mode', () => {
+    beforeEach(() => {
+        queue.clear();
+    });
+
+    it('throws unknown_mode rather than queuing the player', () => {
+        let thrown;
+        try {
+            queue.join({ userId: 'bogus_1', mode: 'blitz', timeControl: 600000, rating: 1000 });
+        } catch (err) {
+            thrown = err;
+        }
+        expect(thrown).toBeInstanceOf(queue.InvalidQueueRequestError);
+        expect(thrown.code).toBe('unknown_mode');
+    });
+
+    it('creates no waiting list for it, so a second player with the same mode is rejected too', () => {
+        expect(() =>
+            queue.join({ userId: 'bogus_a', mode: 'blitz', timeControl: 600000, rating: 1000 })
+        ).toThrow(queue.InvalidQueueRequestError);
+        // Had the first join keyed a list by 'blitz', this would return a pair.
+        expect(() =>
+            queue.join({ userId: 'bogus_b', mode: 'blitz', timeControl: 600000, rating: 1000 })
+        ).toThrow(queue.InvalidQueueRequestError);
+    });
+});
 
 // CW-125: exercises queue.join() directly rather than through a socket. join()
 // is synchronous and deliberately free of the database (see the file's own

@@ -17,4 +17,12 @@
     <color name="feedback_mistake">#FFEF6C00</color>
     <color name="feedback_blunder">#FFC62828</color>
     <color name="feedback_neutral">#FF616161</color>
+
+    <!-- CW-153's eval bar: White's share and Black's share of the bar, plus the
+         mate label's colour on each. A label always sits on its owner's own
+         fill, so each label colour is picked to contrast with that fill. -->
+    <color name="eval_bar_white">#FFF0F0F0</color>
+    <color name="eval_bar_black">#FF3A3A3A</color>
+    <color name="eval_bar_label_on_white">#FF212121</color>
+    <color name="eval_bar_label_on_black">#FFFAFAFA</color>
 </resources>

@@ -27,14 +27,26 @@ function whiteToMoveFrom(fen) {
 // Parses one UCI 'info ...' line for a score, from WHITE's perspective. UCI
 // reports from the side to move, so the sign is flipped when black is on
 // move. Returns null for an info line that carries no score (most don't).
+//
+// Returns { cp, mateIn }. cp is the clamped centipawn value everything
+// downstream already relies on (classification included), mate or not.
+// mateIn is the true mate distance, which the clamp above throws away:
+// positive when White mates, negative when Black does, null when the score
+// is not a mate. `mate 0` — the position is already checkmate — is null too:
+// there is no mate ahead, and a zero can't say who delivered it.
 function parseScoreLine(line, whiteToMove) {
     const m = line.match(/score (cp|mate) (-?\d+)/);
     if (!m) return null;
     const n = Number(m[2]);
-    const side = m[1] === 'cp'
-        ? Math.max(-MATE_CP, Math.min(MATE_CP, n))
-        : (n > 0 ? MATE_CP : -MATE_CP);
-    return whiteToMove ? side : -side;
+    const isMate = m[1] === 'mate';
+    const side = isMate
+        ? (n > 0 ? MATE_CP : -MATE_CP)
+        : Math.max(-MATE_CP, Math.min(MATE_CP, n));
+    const mateSide = isMate && n !== 0 ? n : null;
+    return {
+        cp: whiteToMove ? side : -side,
+        mateIn: mateSide === null ? null : (whiteToMove ? mateSide : -mateSide),
+    };
 }
 
 module.exports = { spawnEngine, whiteToMoveFrom, parseScoreLine, ENGINE_PATH, MATE_CP };

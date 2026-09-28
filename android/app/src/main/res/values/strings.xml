@@ -14,6 +14,10 @@
     <string name="home_recent_games">Recent games</string>
     <string name="home_no_games">No games yet</string>
     <string name="home_play">Play</string>
+    <!-- CW-155's mode picker. Short on purpose: three of these share one row. -->
+    <string name="mode_classic">Classic</string>
+    <string name="mode_eval">Eval bar</string>
+    <string name="mode_feedback">Feedback</string>
     <string name="home_retry">Try again</string>
 
     <!--

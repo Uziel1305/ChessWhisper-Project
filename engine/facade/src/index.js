@@ -52,7 +52,11 @@ const server = http.createServer((req, res) => {
         }
 
         try {
-            reply(res, 200, { cp: await evaluate(fen, budgetMs) });
+            const { cp, mateIn } = await evaluate(fen, budgetMs);
+            // mateIn is added only when there is one, so an ordinary answer is
+            // exactly the {cp} it has always been — nothing reading the body
+            // today has to know the field exists.
+            reply(res, 200, mateIn === null ? { cp } : { cp, mateIn });
         } catch (err) {
             console.error('evaluate failed:', err.message);
             reply(res, err.timedOut ? 504 : 500, { error: 'evaluate_failed' });

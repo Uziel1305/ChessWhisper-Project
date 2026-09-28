@@ -44,6 +44,19 @@ test('POST /evaluate returns 200 {cp} on success', async () => {
     assert.deepEqual(await res.json(), { cp: 77 });
 });
 
+// The test above's exact {cp: 77} is what proves a non-mate answer carries no
+// mateIn key at all. This is the other half: a mate answer adds it, signed
+// from White's perspective.
+test('POST /evaluate adds mateIn when the engine reports a mate', async () => {
+    const res = await fetch(`${baseUrl}/evaluate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fen: 'FAKE-mate3 w - - 0 1', budgetMs: 200 }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { cp: 10000, mateIn: 3 });
+});
+
 test('POST /evaluate returns 504 when the engine times out', async () => {
     const res = await fetch(`${baseUrl}/evaluate`, {
         method: 'POST',

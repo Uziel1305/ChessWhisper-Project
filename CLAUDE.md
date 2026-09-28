@@ -288,8 +288,13 @@ AI-assist features are switched on for that game:
   They also travel on every `queue.join`, so brevity costs nothing and buys headroom.
 - `queue.join` must **reject** an unrecognised mode rather than key a waiting list by it.
   A typo would otherwise leave a player queued alone forever, with no error to explain it.
-- Android hardcodes `mode: 'classic'` from CW-41. A picker is deferred exactly as the
-  time-control picker is: cheap to build once the assist features exist, worthless before.
+- Android chooses the mode with a picker on the home screen (CW-155), above Play. It
+  hardcoded `mode: 'classic'` from CW-41 until the assist features existed to choose
+  between. The picker offers **classic, eval and feedback only** — `retraction` is
+  accepted by the server but deliberately not offered until its feature is built, since
+  choosing it would give a game with no assist at all. `GameMode`
+  (`android/.../ui/home/GameMode.java`) is the one place Android names the modes, with
+  their wire values pinned by `GameModeTest`; the selection lives in `HomeViewModel`.
 - Rejected alternative: `mode` as `rated`/`casual`. Nothing in this product is unrated, so
   the field would have carried no information, and the assist features would then have
   needed a second field anyway.
@@ -382,6 +387,38 @@ A move's verdict comes from its centipawn loss, against these fixed thresholds:
   centipawns under Stockfish and under the custom engine. CW-83's benchmark is where that
   is checked — known blunders and known good moves must get matching classifications from
   both — and is the one place these numbers may be revisited.
+
+### `eval.update` carries the mate distance as an optional `mateIn` (decided September 2026)
+
+The facade clamps a UCI `score mate N` to ±10000 in `evalCp`, which throws the distance
+away — so nothing downstream could ever show "mate in 3". `mateIn` carries the true
+distance alongside `evalCp`, from the **same single evaluation** per committed half-move.
+No extra engine call.
+
+- **Same fixed White-perspective semantics as `evalCp`.** `mateIn: 3` means White mates in
+  3; `mateIn: -3` means Black mates in 3. It is never flipped for the local player's colour
+  or the board's orientation — flipping changes only where Android draws it.
+- **Present only when the engine reports a forced mate ahead; otherwise the key is absent,
+  not `null`.** An ordinary `eval.update` is still exactly `{type, ply, evalCp}`, and the
+  facade's HTTP body is still exactly `{cp}` — `{cp, mateIn}` only for a mate. Inside the
+  server, `engineClient.evaluate()` always resolves `{cp, mateIn}` with `null` for
+  "none", so callers see one shape.
+- **`mate 0` — the position is already checkmate — is absent too.** There is no mate
+  ahead, and a zero distance cannot say who delivered it (JSON has no −0). `evalCp` still
+  pins to the winner's end, and `game.end` announces the checkmate.
+- **`evalCp` is unchanged and remains the only thing classification reads.** `game.evals`
+  still stores plain clamped centipawns, so `mateIn` never reaches `move.feedback`. It is
+  not stored on the game at all — `evaluatePly` passes it straight into that ply's
+  broadcast.
+- **No distance threshold on the wire.** The server reports whatever distance the engine
+  found; showing an indicator only for `abs(mateIn) <= 5` is an Android display rule
+  (CW-153). The bar itself needs no `mateIn` to pin to the right end — the clamped
+  `evalCp` already saturates for any mate.
+- The sign derivation lives in one place, `parseScoreLine` in `engine/facade/src/uci.js`,
+  and `engine/facade/test/uci.test.js` pins all four combinations of (sign of UCI's `mate
+  N`) × (side to move), plus `mate 0`.
+- This changed an event's shape, so per the rule in the `moves` entry above it had to be
+  told to whoever writes the client.
 
 ### The engine is built to compare evaluations and searches (decided September 2026)
 
