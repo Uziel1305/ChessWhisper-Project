@@ -241,6 +241,36 @@ describe('matchmaking queue', () => {
         expect(laterA).toBeNull();
         expect(laterB).toBeNull();
     });
+
+    // The contract the Android client relies on to leave the queue (CW-157's
+    // ghost-queue fix): it has no queue.leave of its own and simply closes its
+    // matchmaking socket when Home goes away. The socket closing must take the
+    // player out of the waiting list — otherwise a later joiner is matched with
+    // someone who is no longer there, which is exactly the bug that was found.
+    it('removes a waiting player whose socket closes, so nobody is matched with them', async () => {
+        const idLeaver = await registerPlayer('QueueTestuser_leaver');
+        const idLater = await registerPlayer('QueueTestuser_later');
+
+        const leaver = await connect(accessTokenFor(idLeaver));
+        leaver.send(JSON.stringify({ type: 'queue.join', mode: 'classic', timeControl: 600000 }));
+        // No reply is sent to a player who is merely waiting, so wait a moment
+        // for the join to be processed before the socket goes.
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // A clean close, like the app's: resolves once the closing handshake is
+        // done, by which point the server has run its own close handler.
+        await new Promise((resolve) => {
+            leaver.once('close', resolve);
+            leaver.close(1000, 'leaving');
+        });
+
+        const later = await connect(accessTokenFor(idLater));
+        const event = nextEvent(later);
+        later.send(JSON.stringify({ type: 'queue.join', mode: 'classic', timeControl: 600000 }));
+
+        // Waiting, not matched with the player who left.
+        expect(await event).toBeNull();
+    });
 })
 
 // CW-156: the same rule at the queue itself, called directly. Its own

@@ -98,9 +98,13 @@ public class HomeViewModel extends ViewModel {
         selectedMode = mode;
     }
 
+    // The listener this screen handed to GameSocket, kept so onCleared() can
+    // cancel exactly this screen's matchmaking and nothing newer.
+    private GameSocket.MatchListener matchListener;
+
     public void play() {
         matchmaking.setValue(new MatchmakingState(MatchmakingStatus.CONNECTING, null, null));
-        GameSocket.getInstance().connectAndJoinQueue(selectedMode.wireValue, new GameSocket.MatchListener() {
+        matchListener = new GameSocket.MatchListener() {
             @Override
             public void onMatchFound(MatchFound matchFound) {
                 // postValue: this listener runs on OkHttp's thread, not the main thread.
@@ -117,7 +121,27 @@ public class HomeViewModel extends ViewModel {
                 matchmaking.postValue(new MatchmakingState(
                         MatchmakingStatus.ERROR, null, "Couldn't reach the server."));
             }
-        });
+        };
+        GameSocket.getInstance().connectAndJoinQueue(selectedMode.wireValue, matchListener);
+    }
+
+    // Runs only when Home is finished for good — Back, or the session-ended
+    // redirect — never on rotation, and not when a match navigates into the game
+    // (Home isn't finished then). Without this, the matchmaking socket outlived
+    // the screen: the server kept the player waiting, a later joiner was matched
+    // with them, and their match.found landed on this dead ViewModel so they
+    // never saw the game (CW-157's ghost-queue bug). Closing the socket lets the
+    // server's close handler take them out of the queue.
+    //
+    // Nothing else needs resetting: a reopened Home gets a new ViewModel, which
+    // starts IDLE (picker and Play enabled) with the default mode selected.
+    @Override
+    protected void onCleared() {
+        super.onCleared();
+        MatchmakingState current = matchmaking.getValue();
+        if (current == null || current.status != MatchmakingStatus.MATCHED) {
+            GameSocket.getInstance().cancelMatchmaking(matchListener);
+        }
     }
 
 }

@@ -160,6 +160,19 @@ public final class GameSocket {
         webSocket.send(resign.toString());
     }
 
+    // Called when the screen that started matchmaking goes away for good without
+    // a match (Home finished by Back). Closing the socket is what takes the player
+    // out of the server's waiting list — the server's close handler runs
+    // queue.leave — so they can't be matched later as a ghost who never sees the
+    // game. Only acts if `owner` is still the current listener: a screen that has
+    // already been superseded by a newer matchmaking session must never tear that
+    // newer session's socket down.
+    public void cancelMatchmaking(MatchListener owner) {
+        if (owner != null && owner == matchListener) {
+            disconnect();
+        }
+    }
+
     // Called when GameActivity is actually leaving for good (game over, resigned,
     // or backed out) — never on a lifecycle event that only pauses it, like Home
     // being pressed. close(), not cancel(): a graceful close still delivers any
