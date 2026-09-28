@@ -4,7 +4,7 @@ Proposed-Architecture-SmartChessMove.docx
 decision discusses with tamir.docx
 plan.docx
 Important%20Decisions.docx
-
+chess_whisperer_dataset_design.docx
 # Word lock files (created while the documents above are open)
 ~$*.docx
 
@@ -48,3 +48,16 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 *.log
+
+
+# ---- ML dataset pipeline ----
+# The Lichess dumps and everything derived from them. Tens of GB, and fully
+# reproducible from the URLs and sampling parameters recorded in ml/notes,
+# which is what makes ignoring them lossless rather than lossy.
+ml/data/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+venv/

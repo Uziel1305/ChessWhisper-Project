@@ -428,3 +428,69 @@ asserted:
 - Rejected alternative: a global `setEvaluator()` with a free `evaluate(pos)`. Simpler
   while there were two pure functions, but it is hidden mutable state, it makes evaluators
   awkward to construct in tests, and it postpones the one refactor that is costly.
+
+### The evaluation model trains on a stored, canonical dataset (decided September 2026)
+
+The multi-layer perceptron evaluator learns from a dataset of about 600,000 positions —
+500,000 training, 50,000 validation, 50,000 held back as a frozen test set — built by the
+Python pipeline in epic CW-158 and kept deliberately independent of whatever model consumes
+it:
+
+- **Every row carries `target_value` beside `raw_cp` and `raw_mate`.** `target_value` is
+  centipawns; the raw fields are what the engine actually reported. Any training-time
+  transformation — squashing to win/draw/loss space, clamping the tail — belongs to the
+  training script, so it can change without regenerating a single row. Raw centipawns are a
+  poor regression target directly (a heavy tail, and a handful of mate-sized values dominate
+  the loss), but that is the trainer's problem to solve, not the dataset's to pre-empt.
+- **`target_value` is from the side to move's point of view**, matching the `Evaluator`
+  contract in `eval.hpp`. So `MlpEvaluator` returns its output unchanged and `uci.js` keeps
+  doing the single flip to white that the eval bar and `classification.js` expect. A
+  consequence worth knowing: the validation and test labels need **no** flip, because UCI
+  already reports from the side to move — only the evaluation-database labels may, depending
+  on that file's own convention.
+- **Mate becomes `sign * (30000 - 100 * N)`** for a mate in N, so mate in 1 is 29,900 and
+  mate in 8 is 29,200. Same conversion for both label sources.
+- **This puts three different mate encodings in the project.** They serve different jobs and
+  are not being unified, so the table is the defence against confusing them:
+
+  | Where | Encoding |
+  |---|---|
+  | Engine search (`search.hpp`) | `MATE_SCORE` 30000, one per **ply**: mated at ply p is `-MATE_SCORE + p` |
+  | Facade output (`uci.js`) | clamped to ±10000, so the game server only ever sees a plain number |
+  | Dataset `target_value` | 30000, one hundred per **move** |
+
+- **`MlpEvaluator::evaluate` must therefore clamp its output well below 29,936.**
+  `isMateScore` in `search.hpp` treats anything past `MATE_SCORE - MAX_PLY` as a mate, and
+  `search()` breaks out of iterative deepening when it sees one. A trained net that overshoots
+  into that band on a position with no mate in it makes the engine stop deepening early and
+  print `score mate N` with a meaningless N. ±29,000 leaves comfortable headroom. Real mates
+  still report correctly — they come from the terminal-position path, never from the evaluator.
+- **The two label sources have different jobs.** Training labels come from the public Lichess
+  evaluation database, which is already analysed to high depth and costs nothing to label.
+  Validation and test come from real Lichess games and are evaluated by us at a fixed 200 ms
+  under one pinned Stockfish configuration. The reason for the split is that **only the games
+  database carries game IDs**, and game IDs are what make the next point possible.
+- **Validation and test are separated by game, not by position.** Consecutive positions in one
+  game are nearly identical, so splitting at the position level leaks: the same middlegame
+  would sit on both sides of the boundary and the held-out numbers would flatter the model. A
+  game contributes to validation or to test, never both.
+- **The accepted cost is that the two sources sit on slightly different scales** — deep
+  pre-computed analysis against our own 200 ms search. CW-168 measures the correlation and mean
+  signed difference once and records it as dataset metadata, so that when validation error stops
+  tracking training error it is possible to tell overfitting from a label mismatch.
+- **Deduplication uses a key of the four position-defining FEN fields** — piece placement, side
+  to move, castling rights, en-passant square — ignoring the halfmove clock and fullmove number,
+  which do not change what the position *is*. Convenient side effect: that is also the shape the
+  evaluation dump's own truncated FENs arrive in, so both sources normalise identically with no
+  special case.
+- **The test set is frozen once evaluated**, with its checksum in the dataset metadata. It is not
+  used for architecture, features, learning rate, epoch count, regularisation, preprocessing, or
+  choosing between model versions — validation carries all of those. The pipeline enforces this
+  structurally rather than by discipline: training is filtered against a blocklist that is the
+  union of the validation and test keys, and no training code path opens the test file.
+- **That blocklist is why the pipeline builds the held-out splits first.** It reads as a strange
+  order — the smallest splits before the largest — but training cannot be filtered against
+  something that does not exist yet.
+- Rejected alternative: drawing validation and test from the evaluation database as well. It
+  removes a Stockfish run and roughly a day of work, but that file has no game IDs, so the splits
+  could only be separated by position — which is the leak described above.
