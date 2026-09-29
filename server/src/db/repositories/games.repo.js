@@ -67,4 +67,46 @@ async function finish({ id, result, reason }, db = pool) {
     return updated.rows[0];
 }
 
-module.exports = { insert, findById, UnknownPlayerError, finish };
+// A player's finished games, newest first, each seen from that player's side:
+// which colour they had, who the opponent was, and their own rating change.
+// `g.id` breaks ties between games that ended at the same instant, so the order
+// is stable between requests and across the LIMIT cutoff.
+//
+// The opponent is an inner JOIN because games -> users is RESTRICT: a user who
+// has games cannot be deleted, so the opponent always exists. rating_history is
+// a LEFT JOIN so a finished game still appears even if its rating row is missing
+// — rating_before/after then come back null.
+async function findHistoryByUser(userId, limit) {
+    const result = await pool.query(
+        `SELECT g.id, g.mode, g.time_control_ms, g.result, g.reason, g.ended_at,
+                CASE WHEN g.white_user_id = $1 THEN 'white' ELSE 'black' END AS color,
+                opp.username AS opponent_username,
+                rh.rating_before, rh.rating_after
+           FROM games g
+           JOIN users opp ON opp.id = CASE WHEN g.white_user_id = $1
+                                           THEN g.black_user_id ELSE g.white_user_id END
+           LEFT JOIN rating_history rh ON rh.game_id = g.id AND rh.user_id = $1
+          WHERE (g.white_user_id = $1 OR g.black_user_id = $1) AND g.result IS NOT NULL
+          ORDER BY g.ended_at DESC, g.id DESC
+          LIMIT $2`,
+        [userId, limit]
+    );
+    return result.rows;
+}
+
+// The home screen's Games counter: every finished game, either colour. Same SQL
+// as ratingsRepo.countRatedGames, deliberately kept separate — that one answers
+// "rated games" for Elo's K-factor, this one "finished games" for display. Today
+// every game is rated, so they agree; if that ever changes, only one should move.
+async function countFinishedByUser(userId) {
+    const result = await pool.query(
+        `SELECT COUNT(*) FROM games
+          WHERE (white_user_id = $1 OR black_user_id = $1)
+            AND result IS NOT NULL`,
+        [userId]
+    );
+    // COUNT(*) is a bigint, which pg returns as a string.
+    return parseInt(result.rows[0].count, 10);
+}
+
+module.exports = { insert, findById, UnknownPlayerError, finish, findHistoryByUser, countFinishedByUser };

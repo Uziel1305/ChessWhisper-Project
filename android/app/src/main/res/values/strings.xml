@@ -18,13 +18,21 @@
     <string name="mode_classic">Classic</string>
     <string name="mode_eval">Eval bar</string>
     <string name="mode_feedback">Feedback</string>
+    <!-- Not in the picker (its feature isn't built), but history can show it. -->
+    <string name="mode_retraction">Retraction</string>
     <string name="home_retry">Try again</string>
 
-    <!--
-      Hardcoded until the games story lands — there is no games table to count
-      yet. True today: nobody can play, so every player really has zero games.
-    -->
-    <string name="home_games_none" translatable="false">0</string>
+    <!-- The Games counter before history has loaded — a real 0 must not flash first. -->
+    <string name="home_games_unknown" translatable="false">–</string>
+    <string name="home_history_error">Couldn\'t load your games.</string>
+
+    <!-- CW-214's history rows. The outcome is the server's, never derived here. -->
+    <string name="history_outcome_win">Win</string>
+    <string name="history_outcome_loss">Loss</string>
+    <string name="history_outcome_draw">Draw</string>
+    <string name="history_vs_opponent">vs %1$s</string>
+    <!-- %1$s is the mode label, %2$d the time control in minutes. -->
+    <string name="history_mode_and_time">%1$s · %2$d min</string>
 
 
     <string name="login_title">Log in</string>

@@ -1,6 +1,5 @@
 package com.example.chesswhisper.ui.game;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -21,7 +20,6 @@ import com.example.chesswhisper.data.game.model.GameEnd;
 import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.game.model.MoveCommitted;
 import com.example.chesswhisper.data.game.model.MoveFeedback;
-import com.example.chesswhisper.ui.home.HomeActivity;
 
 import java.util.List;
 import java.util.Locale;
@@ -314,8 +312,12 @@ public class GameActivity extends AppCompatActivity {
         GameSocket.getInstance().resign(gameId);
     }
 
+    // Back to the Home that launched this game — it is always the one directly
+    // underneath, alive and waiting on its activity result, which is what makes
+    // it refresh the rating and history. Starting a new HomeActivity here instead
+    // would stack another Home per game and leave the refresh on the hidden one.
     private void goToHome() {
-        startActivity(new Intent(this, HomeActivity.class));
+        setResult(RESULT_OK);
         finish();
     }
 

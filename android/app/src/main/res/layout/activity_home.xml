@@ -116,12 +116,12 @@
                             android:text="@string/home_games_label"
                             android:textAppearance="?attr/textAppearanceBodyMedium" />
 
-                        <!-- Hardcoded until the games story lands: no games table to count. -->
+                        <!-- The history response's total (CW-214); a dash until it loads. -->
                         <TextView
                             android:id="@+id/gamesText"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/home_games_none"
+                            android:text="@string/home_games_unknown"
                             android:textAppearance="?attr/textAppearanceHeadlineSmall" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
@@ -134,15 +134,33 @@
                 android:text="@string/home_recent_games"
                 android:textAppearance="?attr/textAppearanceTitleMedium" />
 
-            <!-- Weighted, so it absorbs the free space and pins Play to the bottom. -->
-            <TextView
+            <!-- Weighted, so it absorbs the free space and pins Play to the bottom.
+                 The list and the empty/error text share it; render() shows one. -->
+            <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="@string/home_no_games"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant" />
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/historyList"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingTop="8dp"
+                    android:visibility="gone"
+                    tools:listitem="@layout/item_game_history" />
+
+                <!-- "No games yet", or the error text if history failed to load. -->
+                <TextView
+                    android:id="@+id/historyEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="@string/home_no_games"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:visibility="gone" />
+            </FrameLayout>
 
             <!-- CW-155: which assist features the next game has. Exactly one is
                  always selected (Classic by default); what's selected is the mode

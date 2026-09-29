@@ -18,6 +18,12 @@
     <color name="feedback_blunder">#FFC62828</color>
     <color name="feedback_neutral">#FF616161</color>
 
+    <!-- CW-214's history rows: one colour per outcome. An unrecognised outcome
+         falls back to history_draw's neutral grey rather than crashing. -->
+    <color name="history_win">#FF2E7D32</color>
+    <color name="history_loss">#FFC62828</color>
+    <color name="history_draw">#FF616161</color>
+
     <!-- CW-153's eval bar: White's share and Black's share of the bar, plus the
          mate label's colour on each. A label always sits on its owner's own
          fill, so each label colour is picked to contrast with that fill. -->

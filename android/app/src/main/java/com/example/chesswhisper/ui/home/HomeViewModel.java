@@ -3,7 +3,9 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 
+import com.example.chesswhisper.data.game.GameRepository;
 import com.example.chesswhisper.data.game.GameSocket;
+import com.example.chesswhisper.data.game.model.GameHistoryResponse;
 import com.example.chesswhisper.data.game.model.MatchFound;
 import com.example.chesswhisper.data.network.ApiError;
 import com.example.chesswhisper.data.user.UserRepository;
@@ -39,6 +41,9 @@ public class HomeViewModel extends ViewModel {
         return state;
     }
     public void load(){
+        // Each half guards itself, so a retry after the profile failed doesn't
+        // refetch a history that already loaded (or the reverse).
+        loadHistory();
         Status current= state.getValue().status;
         // The Activity calls this from onCreate, which runs again on every
         // rotation — but this ViewModel survives, so the request must not be
@@ -56,6 +61,76 @@ public class HomeViewModel extends ViewModel {
             @Override
             public void onError(ApiError error) {
                 state.setValue(new HomeState(Status.ERROR,error,null));
+            }
+        });
+    }
+
+    // Re-fetches the profile and history after a game, when both have changed
+    // (a new rating, a new row). Unlike load() it never goes back to LOADING, so
+    // the screen keeps showing the old values until the new ones arrive, and a
+    // failure keeps them too — stale-but-real beats an error over good data.
+    // A dead session needs nothing here: SessionAwareActivity reacts to it.
+    public void refresh(){
+        userRepository.me(new UserRepository.MeCallback() {
+            @Override
+            public void onSuccess(MeResponse response) {
+                state.setValue(new HomeState(Status.SUCCESS,null, response));
+            }
+            @Override
+            public void onError(ApiError error) {
+                // Keep what is on screen.
+            }
+        });
+        fetchHistory();
+    }
+
+    // Separate from HomeState, like MatchmakingState below: the history can fail
+    // while the profile loaded, and one failing must not hide the other.
+    public static final class HistoryState {
+        public final Status status;
+        public final ApiError error;
+        public final GameHistoryResponse history;
+
+        HistoryState(Status status, ApiError error, GameHistoryResponse history) {
+            this.status = status;
+            this.error = error;
+            this.history = history;
+        }
+    }
+
+    private final GameRepository gameRepository = new GameRepository();
+
+    private final MutableLiveData<HistoryState> historyState =
+            new MutableLiveData<>(new HistoryState(Status.IDLE, null, null));
+
+    public LiveData<HistoryState> getHistoryState() {
+        return historyState;
+    }
+
+    private void loadHistory() {
+        Status current = historyState.getValue().status;
+        if (current == Status.LOADING || current == Status.SUCCESS) {
+            return;
+        }
+        historyState.setValue(new HistoryState(Status.LOADING, null, null));
+        fetchHistory();
+    }
+
+    private void fetchHistory() {
+        gameRepository.history(new GameRepository.HistoryCallback() {
+            @Override
+            public void onSuccess(GameHistoryResponse response) {
+                historyState.setValue(new HistoryState(Status.SUCCESS, null, response));
+            }
+
+            @Override
+            public void onError(ApiError error) {
+                // On a refresh, a list already on screen stays; only a first
+                // load with nothing to show turns into an error.
+                if (historyState.getValue().status == Status.SUCCESS) {
+                    return;
+                }
+                historyState.setValue(new HistoryState(Status.ERROR, error, null));
             }
         });
     }
@@ -123,6 +198,17 @@ public class HomeViewModel extends ViewModel {
             }
         };
         GameSocket.getInstance().connectAndJoinQueue(selectedMode.wireValue, matchListener);
+    }
+
+    // Called by the Activity right after it launches GameActivity for a match.
+    // Back to IDLE so the MATCHED value cannot be replayed into a second launch,
+    // and the listener dropped: the match is over as far as this screen is
+    // concerned, so onCleared() has no matchmaking of its own left to cancel.
+    // (It couldn't cancel anything anyway — GameSocket only acts for the
+    // current listener, and GameActivity.disconnect() clears that.)
+    public void onMatchLaunched() {
+        matchListener = null;
+        matchmaking.setValue(new MatchmakingState(MatchmakingStatus.IDLE, null, null));
     }
 
     // Runs only when Home is finished for good — Back, or the session-ended
