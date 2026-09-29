@@ -7,11 +7,15 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.chesswhisper.R;
 import com.example.chesswhisper.data.auth.SessionManager;
@@ -34,7 +38,20 @@ public class HomeActivity extends SessionAwareActivity {
     private MaterialButton retryButton;
     private MaterialButton playButton;
     private MaterialButtonToggleGroup modePicker;
+    private TextView gamesText;
+    private RecyclerView historyList;
+    private TextView historyEmpty;
+    private final GameHistoryAdapter historyAdapter = new GameHistoryAdapter();
     private HomeViewModel viewModel;
+    // Registered as a field initializer so it exists before onStart, as the
+    // Activity Result API requires. When the game screen finishes — for any
+    // reason, so the result code is ignored — the rating and history have both
+    // changed, and this Home (which stayed alive underneath) re-fetches them.
+    // This is the only refresh trigger: onResume also runs on first open, where
+    // load() has already sent the requests.
+    private final ActivityResultLauncher<Intent> gameLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> viewModel.refresh());
     // render() and renderMatchmaking() fire from separate LiveData observers, so
     // playButton's enabled state (profile loaded AND not already connecting) needs
     // the latest value from both, not just whichever fired last.
@@ -63,9 +80,15 @@ public class HomeActivity extends SessionAwareActivity {
         retryButton = findViewById(R.id.retryButton);
         playButton = findViewById(R.id.playButton);
         modePicker = findViewById(R.id.modePicker);
+        gamesText = findViewById(R.id.gamesText);
+        historyList = findViewById(R.id.historyList);
+        historyEmpty = findViewById(R.id.historyEmpty);
+        historyList.setLayoutManager(new LinearLayoutManager(this));
+        historyList.setAdapter(historyAdapter);
         // Tied to this Activity, so the same instance comes back after rotation.
         viewModel= new ViewModelProvider(this).get(HomeViewModel.class);
         bindModePicker();
+        viewModel.getHistoryState().observe(this, this::renderHistory);
         viewModel.getState().observe(this, new Observer<HomeViewModel.HomeState>() {
             @Override
             public void onChanged(HomeViewModel.HomeState homeState) {
@@ -90,8 +113,10 @@ public class HomeActivity extends SessionAwareActivity {
     // Labels come from GameMode, and the checked button is set from the
     // ViewModel's selection rather than left to the view's own saved state — so
     // after rotation the ViewModel, not the widget, is what decides the mode.
+    // pickerModes(), never values(): retraction is a known mode but has no
+    // button, and buttonIdFor() would map it onto Classic's.
     private void bindModePicker() {
-        for (GameMode mode : GameMode.values()) {
+        for (GameMode mode : GameMode.pickerModes()) {
             MaterialButton button = findViewById(buttonIdFor(mode));
             button.setText(mode.labelRes);
         }
@@ -100,7 +125,7 @@ public class HomeActivity extends SessionAwareActivity {
             // selectionRequired means a click never leaves nothing checked, but
             // it still reports the previous button being unchecked — ignore that.
             if (!isChecked) return;
-            for (GameMode mode : GameMode.values()) {
+            for (GameMode mode : GameMode.pickerModes()) {
                 if (buttonIdFor(mode) == checkedId) {
                     viewModel.selectMode(mode);
                     return;
@@ -156,6 +181,31 @@ public class HomeActivity extends SessionAwareActivity {
         updatePlayButtonEnabled(viewModel.getMatchmakingState().getValue());
     }
 
+    // The history section and the Games counter. It lives inside successGroup,
+    // so it is only ever seen alongside a loaded profile. Exactly one of the
+    // list and the empty/error text is visible once history has settled.
+    private void renderHistory(HomeViewModel.HistoryState state) {
+        if (state.status == HomeViewModel.Status.SUCCESS && state.history != null) {
+            gamesText.setText(String.valueOf(state.history.getTotal()));
+            historyAdapter.submit(state.history.getGames());
+            boolean empty = state.history.getGames().isEmpty();
+            historyList.setVisibility(empty ? View.GONE : View.VISIBLE);
+            historyEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+            historyEmpty.setText(R.string.home_no_games);
+            return;
+        }
+
+        // Never show a count that isn't the server's.
+        gamesText.setText(R.string.home_games_unknown);
+        historyList.setVisibility(View.GONE);
+        if (state.status == HomeViewModel.Status.ERROR) {
+            historyEmpty.setVisibility(View.VISIBLE);
+            historyEmpty.setText(R.string.home_history_error);
+        } else {
+            historyEmpty.setVisibility(View.GONE);
+        }
+    }
+
     // Reacts to matchmaking state changes: navigates to GameActivity once matched,
     // and keeps playButton in sync with whether a connection attempt is in flight.
     private void renderMatchmaking(HomeViewModel.MatchmakingState state) {
@@ -164,7 +214,11 @@ public class HomeActivity extends SessionAwareActivity {
         if (state.status == HomeViewModel.MatchmakingStatus.MATCHED) {
             Intent intent = new Intent(this, GameActivity.class);
             intent.putExtra(GameActivity.EXTRA_MATCH_FOUND, state.matchFound);
-            startActivity(intent);
+            gameLauncher.launch(intent);
+            // Consumed as soon as it is acted on. LiveData replays its current
+            // value to every new observer, so a MATCHED left standing would
+            // reopen the game on rotation or on the way back from it.
+            viewModel.onMatchLaunched();
         }
         // ERROR is deliberately silent beyond re-enabling the button — no retry UI
         // was asked for; the player can just tap Play again.

@@ -1,6 +1,7 @@
 package com.example.chesswhisper.data.network;
 import com.example.chesswhisper.BuildConfig;
 import com.example.chesswhisper.data.auth.AuthApi;
+import com.example.chesswhisper.data.game.GameApi;
 import com.example.chesswhisper.data.user.UserApi;
 import com.example.chesswhisper.data.auth.SessionManager;
 import com.example.chesswhisper.data.auth.model.RefreshResponse;
@@ -16,7 +17,7 @@ import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
 // Builds and hands out the Retrofit-generated API interfaces. Shared plumbing:
-// it knows nothing about auth, so UserApi and GameApi will be served from here too.
+// it knows nothing about auth, so UserApi and GameApi are served from here too.
 public final class ApiClient {
 
     // volatile is required for the double-checked locking below to be safe:
@@ -24,6 +25,7 @@ public final class ApiClient {
     private static volatile Retrofit retrofit;
     private static volatile AuthApi authApi;
     private static volatile UserApi userApi;
+    private static volatile GameApi gameApi;
     private static volatile OkHttpClient httpClient;
 
     // Private constructor — this is a static holder, never instantiated.
@@ -95,6 +97,17 @@ public final class ApiClient {
             }
         }
         return userApi;
+    }
+
+    public static GameApi getGameApi(){
+        if(gameApi == null){
+            synchronized (ApiClient.class){
+                if(gameApi == null){
+                    gameApi = getRetrofit().create(GameApi.class);
+                }
+            }
+        }
+        return gameApi;
     }
 
 

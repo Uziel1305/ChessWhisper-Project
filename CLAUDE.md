@@ -108,13 +108,22 @@ story hangs off and re-laying it out each time is worse than drawing the shell o
 - Top to bottom: a large top app bar on `colorPrimaryContainer` ("Signed in as" above the
   username), a two-tile stat strip (Rating | Games), a "Recent games" section, and a Play
   button pinned at the bottom.
-- Only **username and rating** come from `GET /api/users/me`. Games shows a hardcoded `0`
-  and the history section a "No games yet" empty state — both *literally true* today,
-  since no game can be played yet, so they read as real empty states rather than
-  placeholders. When the games story lands only the source changes, not the layout.
-- The hardcoded `0` silently becomes wrong the day games are recorded and nothing will
-  fail, so `gamesText` and `historyEmpty` carry a comment naming the ticket that replaces
-  them.
+- Username and rating come from `GET /api/users/me`; the Games counter and the Recent games
+  list come from `GET /api/games/history` (CW-214) — `{total, games}`, where each game is
+  already seen from the caller's side (`color`, `opponent`, and a server-derived
+  `outcome` of win/loss/draw, so the app never reads a PGN result). As planned, only the
+  source changed, not the layout: the old hardcoded `0` and static "No games yet" became
+  `gamesText` (a dash until history loads) and a `RecyclerView` with `historyEmpty` as its
+  empty state.
+- The two requests have separate states in `HomeViewModel`, so a failed history never
+  hides a loaded profile. The counter is `gamesRepo.countFinishedByUser`, which reads
+  `games` — not `rating_history` — so a finished game is listed and counted even if its
+  rating row is missing.
+- Home refreshes after a game through an `ActivityResultLauncher`: `GameActivity`
+  `finish()`es back to the Home underneath (it used to start a new one, stacking a Home
+  per game), and the result callback calls `refresh()`. `MATCHED` is consumed the moment
+  the game is launched, so LiveData cannot replay it into a second launch. Nothing
+  refreshes in `onResume()`, which would double every request on first open.
 - **Play is `enabled="false"`** until a matchmaking activity exists. A live button with no
   click listener reads as broken; a disabled one reads as not built yet.
 - The app bar bleeds to the screen edges, so it needs negative horizontal margins to
@@ -295,6 +304,9 @@ AI-assist features are switched on for that game:
   choosing it would give a game with no assist at all. `GameMode`
   (`android/.../ui/home/GameMode.java`) is the one place Android names the modes, with
   their wire values pinned by `GameModeTest`; the selection lives in `HomeViewModel`.
+  Since CW-214 it includes `RETRACTION` too, so game history can label it, with
+  `offeredInPicker = false` — the picker iterates `GameMode.pickerModes()`, never
+  `values()`. An unknown future mode (`fromWire` returns null) shows its raw wire value.
 - Rejected alternative: `mode` as `rated`/`casual`. Nothing in this product is unrated, so
   the field would have carried no information, and the assist features would then have
   needed a second field anyway.
