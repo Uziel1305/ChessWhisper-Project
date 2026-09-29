@@ -34,11 +34,12 @@ matches Lichess's published figure exactly, so every byte was decompressed and p
 
 ### Why 2015-04
 
-Validation and test need ~10,000 games between them (≈5,000 each, at ~10 positions per game).
-Every month from 2014 onward carries hundreds of thousands, so file size past that point is
-cost with no benefit — a 2017 month is 6.55 GB for the same ~10,000 games. 2015-04 is the
-earliest month comfortably above a million games, which gives a hundredfold surplus and a
-normal rating spread while streaming end to end in minutes.
+Validation and test need about 21,000 games between them — 90,000 candidates each at the 8.6
+positions per game the sampling rule actually yields. Every month from 2014 onward carries
+hundreds of thousands, so file size past that point is cost with no benefit — a 2017 month is
+6.55 GB for the same 21,000 games. 2015-04 is the earliest month comfortably above a million:
+it holds 1,785,417, which is 85 times what the splits consume, with a normal rating spread and
+an end-to-end stream in minutes.
 
 Validation and test both come from this one month, split by game so no game contributes to
 both.
@@ -178,12 +179,75 @@ Colour symmetry, which is what it looks like it buys, belongs in the input encod
 
 ---
 
+## The held-out candidates — CW-161
+
+`ml/data/val_candidates.jsonl.zst` and `test_candidates.jsonl.zst` — 90,005 records each,
+1.9 MB each, built in 2.4 minutes by `ml/scripts/build_heldout_candidates.py`. A record is
+`{"fen", "game_id", "ply"}`, the FEN in full six fields because Stockfish wants the halfmove
+clock. Candidates, not splits: CW-162 deduplicates and selects, CW-163 labels, CW-164 freezes.
+
+| | |
+|---|---|
+| games traversed | 1,391,423 of 1,785,417 (78% of the month) |
+| game accepted when | `blake2b(game_id, person=b"accept") % 64 == 0` |
+| split | `blake2b(game_id, person=b"split") % 2` — a **separate** digest |
+| positions per game | first at ply 8–12, then +4, +5 or +6, capped at 10 |
+| yield | 8.61 per game (val, 10,459 games), 8.64 (test, 10,422) |
+| ply spread | p25 21, p50 36, p75 54, p90 75, p99 117, max 217 |
+| side to move | 51.1% White in both splits |
+| duplicate keys within a split | 601 (0.67%) val, 553 (0.61%) test |
+| keys present in both splits | 582 (0.65%) |
+
+**Two personalised hashes, not one digest read twice.** Acceptance requires `v % 64 == 0`,
+which forces `v % 2 == 0` — so taking the split from the same digest's low bit would have put
+every accepted game in one split and left the other empty, and the run would have completed
+and written one full file and one empty one with no error anywhere. `test_heldout_sampling.py`
+pins that both splits are populated.
+
+**The whole month is traversed, not its first 22,000 games.** Filling both splits from the top
+of the file costs 80 seconds against 2.4 minutes, but draws every game from the first hours of
+April 1. A header-only scan runs at 11,400 games/s against 300 for a full parse — python-chess
+skips a game's movetext when the visitor returns `SKIP` from `end_headers()` — so traversing
+1.39M games and fully parsing 21,000 of them is affordable. CW-159 had already shown what a
+contiguous slice costs: the evaluation dump's first 200,000 records reported 18.4% mates
+against a true 12.4%.
+
+**Ply 8–12 rather than 12–16.** A later start holds transpositions down — 113 keys in both
+splits per 20,000 games against 588 — but a held-out set beginning at ply 12 contains almost no
+opening play, and openings are a large share of what the app is asked to evaluate. 0.65% of a
+split, deleted by CW-162 against a 40,000-position margin down to the final 50,000, is the
+price of that coverage.
+
+**The cap keeps a uniform subset, not the first ten.** Ten steps at 4–6 plies reach ply ~55,
+and 6,572 of val's 10,459 games are long enough to hit the cap, so truncating would have ended
+both splits in the middlegame. The subset is why the ply distribution runs out to 217.
+
+**A consequence for verification:** the gaps between plies *written to the file* are sums of 4,
+5 and 6, so the spacing rule cannot be read off the output directly. `measure_candidates.py`
+regenerates each game's `ply_schedule` and checks membership instead — which also proves the
+whole pass is reproducible from the game IDs alone, since a non-deterministic sample would fail
+that check.
+
+**Positions with no legal move are rejected**, because CW-163 cannot get a score for a
+checkmate. Dead draws are **kept** — 4 in val, 3 in test, all bare-king or K+N/K+B endgames.
+They are legal, correctly scored 0.00, and a held-out set that quietly drops them is teaching
+to the test.
+
+**One zstd compressor per output file.** A `ZstdCompressor` owns a single compression context,
+so two `stream_writer`s sharing one interleave their frames and corrupt both outputs — the
+first loses its frame header entirely. Caught on the first read, but it cost a rerun.
+
+---
+
 ## Scripts
 
 | | |
 |---|---|
-| `streams.py` | `iter_lines` / `iter_games` — generators over a decompressing stream, flat memory, stopping early costs nothing |
+| `streams.py` | `iter_lines` / `iter_games` / `open_pgn` — generators and a handle over a decompressing stream, flat memory, stopping early costs nothing |
 | `peek.py` | first few records of each dump; the evidence that neither is ever decompressed in full |
 | `inspect_eval.py` | the perspective and record-shape tests, over the dump's first 200,000 records |
 | `build_sample.py` | the one pass that produced the candidate pool |
 | `measure_sample.py` | the pool measurement; writes `eval_sample_report.txt` |
+| `canonical.py` | the position key and the target scale (CW-160), imported by everything downstream |
+| `build_heldout_candidates.py` | the one pass over the games dump that produced both candidate files |
+| `measure_candidates.py` | CW-161's acceptance checks; writes `heldout_candidates_report.txt` |

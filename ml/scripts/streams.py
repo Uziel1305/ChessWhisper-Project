@@ -7,6 +7,7 @@ whatever the file size, and stopping early costs nothing, because the rest of
 the file is simply never read.
 """
 
+import contextlib
 import io
 
 import zstandard
@@ -29,23 +30,36 @@ def iter_lines(path):
             yield line.rstrip(b"\r\n")
 
 
-def iter_games(path):
-    """Yield each game of a .pgn.zst as a chess.pgn.Game, one at a time.
+@contextlib.contextmanager
+def open_pgn(path):
+    """Yield a decoded text handle over a .pgn.zst, positioned at the first game.
 
-    read_game consumes exactly one game and leaves the cursor at the start of
-    the next, so games are parsed on demand rather than up front. errors=
-    "replace" because player names occasionally carry bytes that are not valid
-    UTF-8, and one bad name must not end the stream.
+    Separate from iter_games because a caller driving chess.pgn.read_game with
+    its own visitor needs the handle, not parsed games — that is what lets a
+    bulk pass skip a game's movetext instead of paying to parse it, which is
+    two orders of magnitude cheaper per game.
+
+    errors="replace" because player names occasionally carry bytes that are not
+    valid UTF-8, and one bad name must not end the stream.
     """
-    import chess.pgn
-
     dctx = zstandard.ZstdDecompressor()
     with open(path, "rb") as fh, dctx.stream_reader(fh) as reader:
-        text = io.TextIOWrapper(
+        yield io.TextIOWrapper(
             io.BufferedReader(reader, buffer_size=BUFFER_SIZE),
             encoding="utf-8",
             errors="replace",
         )
+
+
+def iter_games(path):
+    """Yield each game of a .pgn.zst as a chess.pgn.Game, one at a time.
+
+    read_game consumes exactly one game and leaves the cursor at the start of
+    the next, so games are parsed on demand rather than up front.
+    """
+    import chess.pgn
+
+    with open_pgn(path) as text:
         while True:
             game = chess.pgn.read_game(text)
             if game is None:  # end of stream

@@ -507,7 +507,22 @@ it:
 - **Validation and test are separated by game, not by position.** Consecutive positions in one
   game are nearly identical, so splitting at the position level leaks: the same middlegame
   would sit on both sides of the boundary and the held-out numbers would flatter the model. A
-  game contributes to validation or to test, never both.
+  game contributes to validation or to test, never both. Which one comes from a hash of the game
+  ID under a **separate** personalisation from the one deciding whether the game is sampled at
+  all: acceptance keeps 1 game in 64, which forces the accept digest's low bit to zero, so
+  splitting on a bit of that same digest would have sent every game to one split and written one
+  full file and one empty one without an error. Two `blake2b` personalisations, pinned by a test.
+- **Within a game, positions are sampled at a randomised 4-6 ply spacing from a start in ply
+  8-12, capped at ten per game by uniform subset.** The opening skip is because the first few
+  plies repeat across enormous numbers of games and would appear in *both* splits, defeating the
+  game-level separation; starting at 8 rather than 12 costs 0.65% of a split to cross-split
+  transpositions (measured, against 0.14% at 12) and buys the opening coverage a held-out set
+  needs. The cap is a **subset, not a truncation**: ten steps reach ply ~55 and two-thirds of
+  games run longer, so keeping the first ten would leave both splits without an endgame — the
+  measured ply distribution runs p50 36, p90 75, max 217. A consequence is that the gaps in the
+  written file are *sums* of 4-6, so verification regenerates each game's schedule and checks
+  membership, which doubles as proof that the pass is reproducible from game IDs alone.
+  Implemented in `ml/scripts/build_heldout_candidates.py`, checked by `measure_candidates.py`.
 - **The accepted cost is that the two sources sit on slightly different scales** — deep
   pre-computed analysis against our own 200 ms search. CW-168 measures the correlation and mean
   signed difference once and records it as dataset metadata, so that when validation error stops

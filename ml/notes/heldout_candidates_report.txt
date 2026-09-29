@@ -1,0 +1,48 @@
+CW-161 ACCEPTANCE
+
+val — 90,005 candidates from 10,459 games
+  [PASS] 80,000-100,000 candidates  — 90,005
+  [PASS] every record carries fen, game_id and ply  — 0 incomplete
+  [PASS] every FEN is legal and has a legal move  — 0 bad
+  [PASS] each game's plies are unique and ascending
+  [PASS] no game contributes more than 10
+  [PASS] nothing sampled before ply 8
+  [PASS] every ply is a member of its game's 4-6 ply schedule  — 0 games disagree
+  [PASS] every game belongs to this split by hash  — 0 misassigned
+
+test — 90,005 candidates from 10,422 games
+  [PASS] 80,000-100,000 candidates  — 90,005
+  [PASS] every record carries fen, game_id and ply  — 0 incomplete
+  [PASS] every FEN is legal and has a legal move  — 0 bad
+  [PASS] each game's plies are unique and ascending
+  [PASS] no game contributes more than 10
+  [PASS] nothing sampled before ply 8
+  [PASS] every ply is a member of its game's 4-6 ply schedule  — 0 games disagree
+  [PASS] every game belongs to this split by hash  — 0 misassigned
+
+both splits
+  [PASS] no game ID appears in both splits  — 0 shared
+  [NOTE] the dump is streamed throughout — open_pgn yields one handle and CandidateSampler
+         consumes games one at a time; the pass traversed 1,391,423 games at flat memory
+
+WHAT THE SPLITS LOOK LIKE
+
+val
+  candidates per game : 8.61  (distribution {1: 121, 2: 181, 3: 263, 4: 347, 5: 419, 6: 510, 7: 626, 8: 692, 9: 728, 10: 6572})
+  side to move        : w 45,951 (51.1%)  b 44,054 (48.9%)
+  duplicate keys      : 601 (0.67%) — transpositions within the split, removed by CW-162
+  dead draws          : 4 — insufficient material; legal, correctly scored 0.00, kept deliberately
+  ply percentiles     : p10=12  p25=21  p50=36  p75=54  p90=75  p99=117  max=217
+
+test
+  candidates per game : 8.64  (distribution {1: 134, 2: 167, 3: 255, 4: 336, 5: 394, 6: 491, 7: 593, 8: 714, 9: 731, 10: 6607})
+  side to move        : w 45,950 (51.1%)  b 44,055 (48.9%)
+  duplicate keys      : 553 (0.61%) — transpositions within the split, removed by CW-162
+  dead draws          : 3 — insufficient material; legal, correctly scored 0.00, kept deliberately
+  ply percentiles     : p10=13  p25=21  p50=36  p75=54  p90=75  p99=118  max=215
+
+positions keyed into BOTH splits : 582 (0.65% of val)
+  Different games reaching the same position — the residual the game-level split cannot
+  prevent. CW-162 deletes these from both sides; the margin down to 50,000 each absorbs it.
+
+17/17 checks passed
