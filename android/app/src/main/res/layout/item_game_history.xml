@@ -2,7 +2,8 @@
 <!--
   One finished game in the home screen's history. Outcome on the left, who and
   what in the middle, rating change on the right — the three things a player
-  scans a history for.
+  scans a history for. Sits inside the glass "Recent games" card, which owns
+  the horizontal padding.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -19,6 +20,7 @@
         android:layout_width="56dp"
         android:layout_height="wrap_content"
         android:textAppearance="?attr/textAppearanceTitleMedium"
+        android:textStyle="bold"
         tools:text="Win"
         tools:textColor="@color/history_win" />
 
@@ -35,6 +37,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textColor="@color/text_primary"
             tools:text="vs testuser_bob" />
 
         <TextView
@@ -42,7 +45,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceBodyMedium"
-            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textColor="@color/text_secondary"
             tools:text="Eval bar · 10 min" />
     </LinearLayout>
 
@@ -51,6 +54,8 @@
         android:id="@+id/ratingDeltaText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:fontFeatureSettings="tnum"
         android:textAppearance="?attr/textAppearanceBodyLarge"
+        android:textColor="@color/text_primary"
         tools:text="+16" />
 </LinearLayout>

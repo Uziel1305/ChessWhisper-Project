@@ -1,5 +1,6 @@
 package com.example.chesswhisper.ui.login;
 
+import android.graphics.Color;
 import android.os.Bundle;
 import android.content.Intent;
 import android.view.View;
@@ -7,6 +8,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
+import androidx.activity.SystemBarStyle;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -41,7 +43,9 @@ public class LoginActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         // Draws behind the status and navigation bars; the listener below then
         // pads the content back out from underneath them.
-        EdgeToEdge.enable(this);
+        // Light bar icons always — the app is dark-only (see HomeActivity).
+        EdgeToEdge.enable(this,
+                SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT));
         setContentView(R.layout.activity_login);
         int base = getResources().getDimensionPixelSize(R.dimen.screen_padding);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {

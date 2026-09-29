@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selected segment: solid purple. Others: the glass fill. Disabled (while
+     matchmaking is connecting) keeps the selection visible, just dimmed. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:alpha="0.45" android:color="@color/accent_purple" android:state_checked="true" android:state_enabled="false" />
+    <item android:color="@color/accent_purple" android:state_checked="true" />
+    <item android:color="@color/glass_fill" />
+</selector>

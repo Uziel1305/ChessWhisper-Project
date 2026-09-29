@@ -8,11 +8,18 @@
     <string name="register_back">Back</string>
 
 
+    <!-- The home header's wordmark, split so "Whisper" can take the accent colour. -->
+    <string name="brand_chess" translatable="false">Chess</string>
+    <string name="brand_whisper" translatable="false">Whisper</string>
+    <string name="brand_icon" translatable="false">♞</string>
+
     <string name="home_signed_in_as">Signed in as</string>
     <string name="home_rating_label">Rating</string>
     <string name="home_games_label">Games</string>
     <string name="home_recent_games">Recent games</string>
-    <string name="home_no_games">No games yet</string>
+    <!-- Styled on purpose: setText(int) keeps the spans, so the title and its
+         hint render as two lines from one resource and HomeActivity is unchanged. -->
+    <string name="home_no_games"><b>No games yet</b>\n<small>Play a game to see your recent matches here.</small></string>
     <string name="home_play">Play</string>
     <!-- CW-155's mode picker. Short on purpose: three of these share one row. -->
     <string name="mode_classic">Classic</string>

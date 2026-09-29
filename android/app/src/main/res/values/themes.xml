@@ -1,8 +1,21 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.ChessWhisper" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+    <!-- Base application theme. Dark-only: there is deliberately no values-night
+         override, so the palette is the same whatever the system setting. -->
+    <style name="Base.Theme.ChessWhisper" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/accent_lavender</item>
+        <item name="colorOnPrimary">@color/bg_bottom</item>
+        <item name="colorPrimaryContainer">@color/accent_purple</item>
+        <item name="colorOnPrimaryContainer">@color/text_primary</item>
+        <item name="colorSecondary">@color/accent_cyan</item>
+        <item name="colorSurface">@color/bg_top</item>
+        <item name="colorSurfaceContainerHigh">@color/bg_top</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/glass_stroke</item>
+        <item name="colorOutlineVariant">@color/glass_stroke</item>
+        <item name="colorError">@color/error_soft</item>
+        <item name="android:colorBackground">@color/bg_bottom</item>
+        <item name="android:windowBackground">@drawable/bg_app</item>
     </style>
 
     <style name="Theme.ChessWhisper" parent="Base.Theme.ChessWhisper" />

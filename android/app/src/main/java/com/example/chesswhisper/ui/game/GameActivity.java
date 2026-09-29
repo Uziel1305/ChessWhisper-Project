@@ -31,6 +31,10 @@ import java.util.Locale;
 public class GameActivity extends AppCompatActivity {
 
     public static final String EXTRA_MATCH_FOUND = "match_found";
+    // The local player's own name and rating, from Home's /users/me profile —
+    // match.found only carries the opponent's.
+    public static final String EXTRA_MY_USERNAME = "my_username";
+    public static final String EXTRA_MY_RATING = "my_rating";
 
     // Not specified anywhere: long enough that a slow-but-fine connection doesn't
     // misfire, short enough that a genuinely dead socket doesn't strand the player.

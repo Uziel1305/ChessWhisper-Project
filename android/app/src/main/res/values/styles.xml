@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Small reusable styles for the dark redesign. Colours, sizes and drawables
+     live in their own resource files; these only bundle them. -->
+<resources>
+
+    <!-- A translucent rounded card with a faint lavender edge. -->
+    <style name="GlassCard">
+        <item name="android:background">@drawable/bg_glass_card</item>
+        <item name="android:padding">@dimen/card_padding</item>
+    </style>
+
+    <style name="StatLabel">
+        <item name="android:textAppearance">?attr/textAppearanceBodyMedium</item>
+        <item name="android:textColor">@color/text_secondary</item>
+    </style>
+
+    <style name="StatValue">
+        <item name="android:textSize">@dimen/stat_value_text_size</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+    </style>
+
+    <style name="SectionTitle">
+        <item name="android:textAppearance">?attr/textAppearanceTitleMedium</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- The big purple->indigo pill (Play, Resign). The gradient is a drawable,
+         so the Material tint is switched off to let it show. -->
+    <style name="PrimaryPillButton" parent="Widget.Material3.Button">
+        <item name="android:layout_height">@dimen/pill_button_height</item>
+        <item name="android:background">@drawable/bg_primary_pill</item>
+        <item name="backgroundTint">@null</item>
+        <item name="android:textColor">@color/primary_pill_text</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="iconTint">@color/primary_pill_text</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconPadding">10dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- One segment of the game-mode picker (CW-155). The toggle group rounds
+         only the outer corners, so the row reads as one segmented control. -->
+    <style name="ModeSegmentButton" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:layout_height">@dimen/segment_height</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:paddingStart">4dp</item>
+        <item name="android:paddingEnd">4dp</item>
+        <item name="cornerRadius">@dimen/segment_radius</item>
+        <item name="backgroundTint">@color/mode_segment_bg</item>
+        <item name="strokeColor">@color/mode_segment_stroke</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:textColor">@color/mode_segment_text</item>
+        <item name="rippleColor">@color/accent_glow</item>
+    </style>
+
+    <!-- A rounded capsule around a clock, the icon at its start. -->
+    <style name="ClockPill">
+        <item name="android:background">@drawable/bg_clock_pill</item>
+        <item name="android:minWidth">@dimen/clock_min_width</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:drawableStart">@drawable/ic_clock</item>
+        <item name="android:drawablePadding">10dp</item>
+        <item name="android:textSize">@dimen/clock_text_size</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:maxLines">1</item>
+    </style>
+</resources>

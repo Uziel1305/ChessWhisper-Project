@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The bright lavender edge on the selected segment is its "glow". -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/accent_lavender" android:state_checked="true" android:state_enabled="true" />
+    <item android:color="@color/glass_stroke" />
+</selector>

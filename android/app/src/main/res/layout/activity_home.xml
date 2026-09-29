@@ -10,6 +10,7 @@
     android:id="@+id/home"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@drawable/bg_app"
     tools:context=".ui.home.HomeActivity">
 
     <!-- SUCCESS -->
@@ -22,131 +23,224 @@
         tools:visibility="visible">
 
         <!--
-          Full-bleed, so it sits outside the horizontal padding the content
-          below uses and carries its own instead.
+          Hero header. Full-bleed and drawn under the status bar; HomeActivity
+          pads heroContent (not the root) by the top inset.
+          fitEnd, not centerCrop: the image is never cropped, so the robot on
+          its right edge is always whole. Whatever strip is left over sits where
+          the hero is plain navy, and hero_edge + the scrim hide the seam.
+          A RelativeLayout so the image and scrim take heroContent's bounds
+          exactly; in a wrap_content FrameLayout the bitmap's own intrinsic
+          height would inflate the header instead.
         -->
-        <LinearLayout
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?attr/colorPrimaryContainer"
-            android:orientation="vertical"
-            android:paddingHorizontal="@dimen/screen_padding"
-            android:paddingTop="24dp"
-            android:paddingBottom="24dp">
+            android:background="@color/hero_edge">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <ImageView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/home_signed_in_as"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnPrimaryContainer" />
+                android:layout_alignTop="@+id/heroContent"
+                android:layout_alignBottom="@+id/heroContent"
+                android:importantForAccessibility="no"
+                android:scaleType="fitEnd"
+                android:src="@drawable/home_hero" />
 
-            <TextView
-                android:id="@+id/usernameText"
-                android:layout_width="wrap_content"
+            <View
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textAppearance="?attr/textAppearanceHeadlineSmall"
-                android:textColor="?attr/colorOnPrimaryContainer"
-                tools:text="testuser_me" />
-        </LinearLayout>
+                android:layout_alignTop="@+id/heroContent"
+                android:layout_alignBottom="@+id/heroContent"
+                android:background="@drawable/bg_hero_scrim" />
+
+            <LinearLayout
+                android:id="@+id/heroContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="@dimen/hero_height"
+                android:orientation="vertical"
+                android:paddingHorizontal="@dimen/content_padding"
+                android:paddingBottom="@dimen/section_gap">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/section_gap"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:importantForAccessibility="no"
+                        android:text="@string/brand_icon"
+                        android:textColor="@color/accent_lavender"
+                        android:textSize="@dimen/brand_icon_text_size" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/brand_chess"
+                        android:textColor="@color/text_primary"
+                        android:textSize="@dimen/brand_text_size"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/brand_whisper"
+                        android:textColor="@color/accent_lavender"
+                        android:textSize="@dimen/brand_text_size"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Pushes the username block to the hero's bottom. -->
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/section_gap"
+                    android:text="@string/home_signed_in_as"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="@color/text_secondary" />
+
+                <!-- Half the width at most, so a long name stops short of the characters. -->
+                <TextView
+                    android:id="@+id/usernameText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:maxWidth="200dp"
+                    android:textAppearance="?attr/textAppearanceHeadlineMedium"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold"
+                    tools:text="testuser_me" />
+            </LinearLayout>
+        </RelativeLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:paddingHorizontal="@dimen/screen_padding">
+            android:paddingHorizontal="@dimen/content_padding">
 
             <!-- Stat strip -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="4dp"
                 android:orientation="horizontal">
 
-                <com.google.android.material.card.MaterialCardView
+                <LinearLayout
+                    style="@style/GlassCard"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    app:cardCornerRadius="12dp"
-                    app:cardElevation="0dp"
-                    app:strokeColor="?attr/colorOutlineVariant"
-                    app:strokeWidth="1dp">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_circle_size"
+                        android:layout_height="@dimen/icon_circle_size"
+                        android:background="@drawable/bg_icon_circle"
+                        android:importantForAccessibility="no"
+                        android:scaleType="center"
+                        android:src="@drawable/ic_stat_rating" />
 
                     <LinearLayout
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="16dp">
+                        android:layout_marginStart="@dimen/card_gap"
+                        android:orientation="vertical">
 
                         <TextView
+                            style="@style/StatLabel"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/home_rating_label"
-                            android:textAppearance="?attr/textAppearanceBodyMedium" />
+                            android:text="@string/home_rating_label" />
 
                         <TextView
                             android:id="@+id/ratingText"
+                            style="@style/StatValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textAppearance="?attr/textAppearanceHeadlineSmall"
                             tools:text="1000" />
                     </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
 
-                <com.google.android.material.card.MaterialCardView
+                <LinearLayout
+                    style="@style/GlassCard"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
+                    android:layout_marginStart="@dimen/card_gap"
                     android:layout_weight="1"
-                    app:cardCornerRadius="12dp"
-                    app:cardElevation="0dp"
-                    app:strokeColor="?attr/colorOutlineVariant"
-                    app:strokeWidth="1dp">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_circle_size"
+                        android:layout_height="@dimen/icon_circle_size"
+                        android:background="@drawable/bg_icon_circle"
+                        android:importantForAccessibility="no"
+                        android:scaleType="center"
+                        android:src="@drawable/ic_stat_games" />
 
                     <LinearLayout
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="16dp">
+                        android:layout_marginStart="@dimen/card_gap"
+                        android:orientation="vertical">
 
                         <TextView
+                            style="@style/StatLabel"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/home_games_label"
-                            android:textAppearance="?attr/textAppearanceBodyMedium" />
+                            android:text="@string/home_games_label" />
 
                         <!-- The history response's total (CW-214); a dash until it loads. -->
                         <TextView
                             android:id="@+id/gamesText"
+                            style="@style/StatValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/home_games_unknown"
-                            android:textAppearance="?attr/textAppearanceHeadlineSmall" />
+                            android:text="@string/home_games_unknown" />
                     </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
             </LinearLayout>
 
             <TextView
+                style="@style/SectionTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/home_recent_games"
-                android:textAppearance="?attr/textAppearanceTitleMedium" />
+                android:layout_marginTop="@dimen/section_gap"
+                android:layout_marginBottom="@dimen/card_gap"
+                android:text="@string/home_recent_games" />
 
-            <!-- Weighted, so it absorbs the free space and pins Play to the bottom.
-                 The list and the empty/error text share it; render() shows one. -->
+            <!-- The only weighted child, so it alone absorbs the free space: on a
+                 short screen it shrinks (the list scrolls inside it) and the mode
+                 picker and Play below are never pushed off-screen. The list and
+                 the empty/error text share it; render() shows one. -->
             <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1">
+                android:layout_weight="1"
+                android:background="@drawable/bg_glass_card">
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/historyList"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:clipToPadding="false"
-                    android:paddingTop="8dp"
+                    android:paddingHorizontal="@dimen/card_padding"
+                    android:paddingVertical="8dp"
+                    android:scrollbars="vertical"
                     android:visibility="gone"
                     tools:listitem="@layout/item_game_history" />
 
@@ -155,11 +249,15 @@
                     android:id="@+id/historyEmpty"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
+                    android:drawablePadding="@dimen/empty_state_drawable_padding"
                     android:gravity="center"
+                    android:padding="@dimen/card_padding"
                     android:text="@string/home_no_games"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:visibility="gone" />
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textColor="@color/text_secondary"
+                    android:visibility="gone"
+                    app:drawableTopCompat="@drawable/ic_empty_king"
+                    tools:visibility="visible" />
             </FrameLayout>
 
             <!-- CW-155: which assist features the next game has. Exactly one is
@@ -171,44 +269,43 @@
                 android:id="@+id/modePicker"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
+                android:layout_marginTop="@dimen/section_gap"
                 app:checkedButton="@id/modeClassicButton"
                 app:selectionRequired="true"
                 app:singleSelection="true">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/modeClassicButton"
-                    style="?attr/materialButtonOutlinedStyle"
+                    style="@style/ModeSegmentButton"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
                     android:layout_weight="1"
                     tools:text="@string/mode_classic" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/modeEvalButton"
-                    style="?attr/materialButtonOutlinedStyle"
+                    style="@style/ModeSegmentButton"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
                     android:layout_weight="1"
                     tools:text="@string/mode_eval" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/modeFeedbackButton"
-                    style="?attr/materialButtonOutlinedStyle"
+                    style="@style/ModeSegmentButton"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
                     android:layout_weight="1"
                     tools:text="@string/mode_feedback" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
-            <!-- Disabled until there is a matchmaking screen to start. -->
+            <!-- Disabled until the profile has loaded; HomeActivity enables it. -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playButton"
+                style="@style/PrimaryPillButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
+                android:layout_marginTop="@dimen/card_gap"
+                android:layout_marginBottom="@dimen/section_gap"
                 android:enabled="false"
-                android:text="@string/home_play" />
+                android:text="@string/home_play"
+                app:icon="@drawable/ic_play" />
         </LinearLayout>
     </LinearLayout>
 
@@ -218,6 +315,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
+        android:indeterminateTint="@color/accent_lavender"
         android:visibility="gone"
         tools:visibility="visible" />
 
@@ -236,13 +334,15 @@
             android:id="@+id/errorText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
             android:textColor="?attr/colorError"
             tools:text="Unable to reach server. Check your connection." />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/retryButton"
+            style="@style/PrimaryPillButton"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/home_retry" />
     </LinearLayout>
