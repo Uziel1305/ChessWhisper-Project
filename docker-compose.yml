@@ -37,12 +37,9 @@ services:
       # engine is this one line -> /app/engine/chesswhisper_engine
       ENGINE_BINARY_PATH: /app/engine/chesswhisper_engine
 
-      # How many engine processes pool.js keeps warm and reuses. 1 is enough
-      # to remove per-request spawn cost (what this was added to fix); more
-      # is a later, separate, evidence-driven step (CLAUDE.md's "one worker
-      # per core" is the eventual target for the real custom engine, not this
-      # Stockfish stand-in).
-      ENGINE_WORKER_COUNT: 1
+      # ENGINE_WORKER_COUNT is deliberately unset: pool.js then runs one
+      # engine process per core (under Docker Desktop, the cores given to its
+      # VM). Set it here to override, e.g. ENGINE_WORKER_COUNT: 1.
 
 volumes:
   db-data:

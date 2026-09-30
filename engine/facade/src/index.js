@@ -6,10 +6,11 @@ const { evaluate } = require('./pool');
 // timeout/crash recovery) lives in pool.js — this file is just the HTTP
 // contract on top of it, and stays this small on purpose.
 //
-//   POST /evaluate  {fen, budgetMs}  ->  {cp}
+//   POST /evaluate  {fen, budgetMs}  ->  {cp[, mateIn][, bestMove]}
 //
 // cp is in centipawns from WHITE's perspective (UCI reports from the side to
-// move; uci.js normalises), mate scores clamped to +-10000.
+// move; uci.js normalises), mate scores clamped to +-10000. bestMove is the
+// engine's move in UCI notation, absent when the position has none.
 const PORT = process.env.ENGINE_PORT || 4000;
 
 // FEN characters only. The fen is written to the engine's stdin, so a newline
@@ -52,11 +53,14 @@ const server = http.createServer((req, res) => {
         }
 
         try {
-            const { cp, mateIn } = await evaluate(fen, budgetMs);
-            // mateIn is added only when there is one, so an ordinary answer is
-            // exactly the {cp} it has always been — nothing reading the body
-            // today has to know the field exists.
-            reply(res, 200, mateIn === null ? { cp } : { cp, mateIn });
+            const { cp, mateIn, bestMove } = await evaluate(fen, budgetMs);
+            // mateIn and bestMove are added only when there is one — absent,
+            // not null — so nothing reading the body has to know either
+            // field exists.
+            const body = { cp };
+            if (mateIn !== null) body.mateIn = mateIn;
+            if (bestMove !== null) body.bestMove = bestMove;
+            reply(res, 200, body);
         } catch (err) {
             console.error('evaluate failed:', err.message);
             reply(res, err.timedOut ? 504 : 500, { error: 'evaluate_failed' });
