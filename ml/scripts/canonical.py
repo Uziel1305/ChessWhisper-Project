@@ -35,12 +35,33 @@ def mate_value(n):
         )
     return (1 if n > 0 else -1) * (MAX_CP + MATE_STEP * (Y - abs(n) + 1))
 
-
 def _value(cp, mate):
-    """cp unchanged, mate through the scale. Exactly one must be given."""
+    """cp clamped into the centipawn range, mate through the scale above it.
+    Exactly one must be given.
+
+    The clamp is what keeps the invariant the whole scale rests on: every mate
+    target lies strictly outside the centipawn range, mate in 68 being 20,010
+    against a ceiling of 20,000. Before it, that invariant held only because the
+    Lichess dump happens to clamp at +-20,000 — a property of one data source
+    rather than anything this module enforced. mate_value already refuses a
+    distance outside its frozen range; this is the same guard on the other entry.
+
+    Clamped rather than raising, for two reasons. Lichess clamps the training
+    labels at exactly this value, so both label sources land on one range, and an
+    unclamped held-out label would be a number the training data cannot contain —
+    the model could never be trained toward it, so it would contribute pure
+    artifact to the validation error. And raw_cp keeps what the engine actually
+    reported, so nothing is lost and any later revision recomputes from it.
+
+    Measured: the largest |cp| across the 100,000 Stockfish-labeled held-out
+    positions is 9,165, so this clamps nothing today. That is what a guard rail
+    looks like when it is installed before it is needed rather than after.
+    """
     if (cp is None) == (mate is None):
         raise ValueError("give exactly one of cp, mate")
-    return cp if cp is not None else mate_value(mate)
+    if cp is not None:
+        return max(-MAX_CP, min(MAX_CP, cp))
+    return mate_value(mate)
 
 
 def target_from_white(cp=None, mate=None, *, white_to_move):

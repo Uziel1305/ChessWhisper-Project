@@ -139,3 +139,18 @@ def test_zero_cp_is_a_real_value_not_a_missing_one():
 def test_exactly_one_of_cp_and_mate(kwargs):
     with pytest.raises(ValueError):
         target_from_side_to_move(**kwargs)
+
+
+def test_cp_is_clamped_into_the_centipawn_range():
+    assert target_from_side_to_move(cp=MAX_CP + 3000) == MAX_CP
+    assert target_from_side_to_move(cp=-(MAX_CP + 3000)) == -MAX_CP
+
+
+def test_no_centipawn_value_can_reach_the_mate_band():
+    """The invariant the scale rests on: the longest mate outranks any ordinary
+    evaluation, however extreme the evaluation is."""
+    assert target_from_side_to_move(cp=10 ** 9) < mate_value(Y) < mate_value(1)
+
+
+def test_the_white_relative_entry_clamps_before_flipping():
+    assert target_from_white(cp=999999, white_to_move=False) == -MAX_CP

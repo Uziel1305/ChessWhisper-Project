@@ -1,0 +1,39 @@
+CW-163 — LABELED HELD-OUT SPLITS
+Stockfish 19   sha256 45bc8e4969147db9...
+Threads 1   Hash 16 MB   MultiPV 1   go nodes 110,000
+
+val — 50,000 rows
+  [PASS] exactly 50,000 rows  — 50,000
+  [PASS] no FEN labeled twice  — 0 repeated
+  [PASS] the labeled FENs are exactly the split's FENs  — 0 missing, 0 unexpected
+  [PASS] every row carries all nine fields  — 0 short
+  [PASS] exactly one of raw_cp and raw_mate per row  — 0 with both or neither
+  [PASS] every row is marked val  — 0 wrong
+  [PASS] stored target_value equals canonical.py's  — 0 disagree
+  [PASS] no centipawn target exceeds 20,000  — 0 past the ceiling
+  rows the cp guard clamped: 0
+  written val_labeled.jsonl.zst  1.6 MB
+  sha256  174cbe7f12bb3c882cccfc0a1a45500546ba8bdca5261a9741216ba79348a8c5
+  score kind : cp 47,653 (95.3%)   mate 2,347 (4.7%)
+  |cp|       : p50 240  p90 842  p99 1,317  max 9,165
+  |mate|     : max 18  (scale frozen at Y = 68)
+  depth (cp) : p10 14  p50 16  p90 18
+
+test — 50,000 rows
+  [PASS] exactly 50,000 rows  — 50,000
+  [PASS] no FEN labeled twice  — 0 repeated
+  [PASS] the labeled FENs are exactly the split's FENs  — 0 missing, 0 unexpected
+  [PASS] every row carries all nine fields  — 0 short
+  [PASS] exactly one of raw_cp and raw_mate per row  — 0 with both or neither
+  [PASS] every row is marked test  — 0 wrong
+  [PASS] stored target_value equals canonical.py's  — 0 disagree
+  [PASS] no centipawn target exceeds 20,000  — 0 past the ceiling
+  rows the cp guard clamped: 0
+  written test_labeled.jsonl.zst  1.6 MB
+  sha256  df62c2527b56f39c09bf9ca1631663d1c9f111bce04bc6c4998a8abe7cba19fa
+  score kind : cp 47,742 (95.5%)   mate 2,258 (4.5%)
+  |cp|       : p50 238  p90 848  p99 1,316  max 2,863
+  |mate|     : max 17  (scale frozen at Y = 68)
+  depth (cp) : p10 14  p50 16  p90 18
+
+16/16 checks passed
