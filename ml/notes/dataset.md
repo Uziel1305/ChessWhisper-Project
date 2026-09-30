@@ -181,22 +181,23 @@ Colour symmetry, which is what it looks like it buys, belongs in the input encod
 
 ## The held-out candidates — CW-161
 
-`ml/data/val_candidates.jsonl.zst` and `test_candidates.jsonl.zst` — 90,005 records each,
-1.9 MB each, built in 2.4 minutes by `ml/scripts/build_heldout_candidates.py`. A record is
+`ml/data/val_candidates.jsonl.zst` (90,009 records) and `test_candidates.jsonl.zst` (90,002),
+1.9 MB each, built in 2.5 minutes by `ml/scripts/build_heldout_candidates.py`. A record is
 `{"fen", "game_id", "ply"}`, the FEN in full six fields because Stockfish wants the halfmove
 clock. Candidates, not splits: CW-162 deduplicates and selects, CW-163 labels, CW-164 freezes.
 
 | | |
 |---|---|
-| games traversed | 1,391,423 of 1,785,417 (78% of the month) |
+| games traversed | 1,386,295 of 1,785,417 (78% of the month) |
+| games used | 20,801 — 1.2% of the month |
 | game accepted when | `blake2b(game_id, person=b"accept") % 64 == 0` |
 | split | `blake2b(game_id, person=b"split") % 2` — a **separate** digest |
-| positions per game | first at ply 8–12, then +4, +5 or +6, capped at 10 |
-| yield | 8.61 per game (val, 10,459 games), 8.64 (test, 10,422) |
-| ply spread | p25 21, p50 36, p75 54, p90 75, p99 117, max 217 |
-| side to move | 51.1% White in both splits |
-| duplicate keys within a split | 601 (0.67%) val, 553 (0.61%) test |
-| keys present in both splits | 582 (0.65%) |
+| positions per game | first at ply 8–11, then +4, +5 or +6, capped at 10 |
+| yield | 8.64 per game (val, 10,423 games), 8.67 (test, 10,378) |
+| ply spread | p25 20, p50 35, p75 54, p90 75, p99 117, max 217 |
+| side to move | 49.7% White / 50.3% Black, both splits |
+| duplicate keys within a split | 784 (0.87%) val, 759 (0.84%) test |
+| keys present in both splits | 711 (0.80%) |
 
 **Two personalised hashes, not one digest read twice.** Acceptance requires `v % 64 == 0`,
 which forces `v % 2 == 0` — so taking the split from the same digest's low bit would have put
@@ -204,22 +205,31 @@ every accepted game in one split and left the other empty, and the run would hav
 and written one full file and one empty one with no error anywhere. `test_heldout_sampling.py`
 pins that both splits are populated.
 
-**The whole month is traversed, not its first 22,000 games.** Filling both splits from the top
-of the file costs 80 seconds against 2.4 minutes, but draws every game from the first hours of
+**The whole month is traversed, not its first 21,000 games.** Filling both splits from the top
+of the file costs 80 seconds against 2.5 minutes, but draws every game from the first hours of
 April 1. A header-only scan runs at 11,400 games/s against 300 for a full parse — python-chess
 skips a game's movetext when the visitor returns `SKIP` from `end_headers()` — so traversing
-1.39M games and fully parsing 21,000 of them is affordable. CW-159 had already shown what a
+1.39M games and fully parsing 20,801 of them is affordable. CW-159 had already shown what a
 contiguous slice costs: the evaluation dump's first 200,000 records reported 18.4% mates
 against a true 12.4%.
 
-**Ply 8–12 rather than 12–16.** A later start holds transpositions down — 113 keys in both
-splits per 20,000 games against 588 — but a held-out set beginning at ply 12 contains almost no
-opening play, and openings are a large share of what the app is asked to evaluate. 0.65% of a
-split, deleted by CW-162 against a 40,000-position margin down to the final 50,000, is the
-price of that coverage.
+**Starting at ply 8 rather than 12.** A later start holds transpositions down — measured over
+the same 20,000 games, 113 keys land in both splits from a 12–16 start against 588 from 8–12 —
+but a held-out set beginning at ply 12 contains almost no opening play, and openings are a large
+share of what the app is asked to evaluate. 0.80% of a split, resolved by CW-162 against a
+40,000-position margin down to the final 50,000, is the price of that coverage.
+
+**The window is four plies wide, not five, and that is what balances the side to move.** Two of
+8–11 are even and two odd, so the starting parity is even. With a five-wide window (8–12, three
+even and two odd) 60% of games start with White to move, and because a step of 4 or 6 preserves
+the side to move while only 5 flips it, that bias decays as (1/3)^k rather than vanishing: the
+first build came out **51.1% White in both splits**, and four wide it is 49.7/50.3. The residual
+0.3 points now leans the other way and comes from the game-length distribution, not the window.
+This is the cheap way to get the balance — the alternative, deleting real positions afterwards,
+corrects something a mover-relative input encoding cannot perceive in the first place.
 
 **The cap keeps a uniform subset, not the first ten.** Ten steps at 4–6 plies reach ply ~55,
-and 6,572 of val's 10,459 games are long enough to hit the cap, so truncating would have ended
+and 6,596 of val's 10,423 games are long enough to hit the cap, so truncating would have ended
 both splits in the middlegame. The subset is why the ply distribution runs out to 217.
 
 **A consequence for verification:** the gaps between plies *written to the file* are sums of 4,
@@ -229,13 +239,57 @@ whole pass is reproducible from the game IDs alone, since a non-deterministic sa
 that check.
 
 **Positions with no legal move are rejected**, because CW-163 cannot get a score for a
-checkmate. Dead draws are **kept** — 4 in val, 3 in test, all bare-king or K+N/K+B endgames.
-They are legal, correctly scored 0.00, and a held-out set that quietly drops them is teaching
-to the test.
+checkmate. Dead draws are **kept** — 4 in each split, all bare-king or K+N/K+B endgames. They
+are legal, correctly scored 0.00, and a held-out set that quietly drops them is teaching to the
+test.
 
 **One zstd compressor per output file.** A `ZstdCompressor` owns a single compression context,
 so two `stream_writer`s sharing one interleave their frames and corrupt both outputs — the
 first loses its frame header entirely. Caught on the first read, but it cost a rerun.
+
+---
+
+## The held-out splits — CW-162
+
+`ml/data/val_positions.jsonl.zst` and `test_positions.jsonl.zst` — exactly 50,000 records each,
+1.1 MB each, written by `ml/scripts/select_heldout.py` in seconds. Same record shape as the
+candidates, written in `(game_id, ply)` order. These are what CW-163 labels and CW-164 freezes.
+
+| | val | test |
+|---|---|---|
+| candidates | 90,009 | 90,002 |
+| after within-split deduplication | 89,225 (−784) | 89,243 (−759) |
+| after cross-split resolution | 88,867 (−358) | 88,890 (−353) |
+| selected | **50,000** | **50,000** |
+| ply < 20 / 20–60 / > 60 | 22.1% / 58.8% / 19.1% | 22.2% / 58.6% / 19.3% |
+| side to move | 49.6% White | 49.4% White |
+
+**Deduplication keeps the record with the smallest `(game_id, ply)`, not the first one seen.**
+First-seen depends on the order the candidate file happens to be in, so a rebuild could keep a
+different copy of the same position and quietly change the split's contents. Which copy survives
+does not matter; that it is always the same one does.
+
+**A key in both splits goes to one of them, and is not deleted from both.** The winner is
+`blake2b(key, person=b"tiebreak") % 2`. Colliding keys are transpositions — different games
+reaching the same position — so they are the *commonest* positions in chess, and dropping them
+everywhere would strip exactly those out of the held-out sets. Nothing leaks either way, because
+CW-164's blocklist is the union of both splits, so training excludes the key whichever side keeps
+it. The 711 collisions split 358/353, which is the tiebreak being unbiased in practice and not
+only in principle.
+
+**The cut to 50,000 is a hash rank, not a random sample.** `blake2b(key, person=b"select")`
+sorted, first 50,000: a rank rather than a modulus because the count has to be exact, and a hash
+rather than `random.sample` for the reason CW-159 hashed instead of seeding an RNG — the outcome
+depends only on which keys exist, so it survives a rerun or a reordering of the input.
+
+**It is also uniform in what the position contains, which is checkable:** selecting 56% of the
+candidates moved side to move from 49.7/50.3 to 49.6/50.4, and the two splits' ply spreads agree
+to a tenth of a point. A rank that correlated with game progress would have shown up here as a
+split short of endgames — the same failure the CW-161 cap was designed around, and why 19% of
+each split still sits past ply 60.
+
+**The spread is reported and nothing is rebalanced on it**, as CW-162 requires. The cut never
+looks at the ply, so there is no mechanism by which it could be.
 
 ---
 
@@ -251,3 +305,4 @@ first loses its frame header entirely. Caught on the first read, but it cost a r
 | `canonical.py` | the position key and the target scale (CW-160), imported by everything downstream |
 | `build_heldout_candidates.py` | the one pass over the games dump that produced both candidate files |
 | `measure_candidates.py` | CW-161's acceptance checks; writes `heldout_candidates_report.txt` |
+| `select_heldout.py` | CW-162 — deduplicates, resolves the cross-split collisions, cuts to 50,000 each; writes `heldout_splits_report.txt` |

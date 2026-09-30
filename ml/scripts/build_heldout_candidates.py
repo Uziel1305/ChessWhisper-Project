@@ -48,12 +48,19 @@ GAME_KEEP_ONE_IN = 64
 
 # Plies 0-7 are book positions shared by enormous numbers of games; they would
 # dominate both splits and, worse, appear in BOTH, defeating the game-level
-# separation this ticket exists to provide. Starting at 8-12 keeps real opening
-# play in the held-out sets — a split with no openings cannot say how the model
-# evaluates them — at a measured cost of 588 keys landing in both splits per
-# 20,000 games against 113 for a start of 12-16. That is ~0.7% of a split,
-# deleted by CW-162, against a 40,000-position margin down to the final 50,000.
-FIRST_PLY = (8, 12)
+# separation this ticket exists to provide. Starting at 8 keeps real opening play
+# in the held-out sets — a split with no openings cannot say how the model
+# evaluates them — at a measured cost of 0.80% of a split in cross-split
+# transpositions against 0.14% for a start at 12, resolved by CW-162 against a
+# 40,000-position margin down to the final 50,000.
+#
+# The window is FOUR plies wide, not five, so two of its starts are even and two
+# odd. An odd-sized window is 60/40 on parity, and because a step of 4 or 6
+# preserves the side to move while only 5 flips it, that bias decays as (1/3)^k
+# rather than vanishing: the five-wide 8-12 window produced 51.1% White in both
+# splits. Four wide, the side to move is balanced by construction rather than by
+# deleting real positions afterwards.
+FIRST_PLY = (8, 11)
 STEP_CHOICES = (4, 5, 6)
 MAX_PER_GAME = 10
 

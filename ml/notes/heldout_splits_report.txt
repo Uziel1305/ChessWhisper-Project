@@ -1,0 +1,35 @@
+CW-162 SELECTION
+
+val
+  candidates            90,009
+  after within-split    89,225  (-784 duplicate keys)
+  after cross-split     88,867  (-358 keys to the other split)
+  selected              50,000  1.1 MB
+
+test
+  candidates            90,002
+  after within-split    89,243  (-759 duplicate keys)
+  after cross-split     88,890  (-353 keys to the other split)
+  selected              50,000  1.1 MB
+
+keys present in both splits : 711  — each given to one side by blake2b(key) % 2,
+                              not deleted from both: these are transpositions, so they are
+                              the commonest positions in chess.
+
+CW-162 ACCEPTANCE
+  [PASS] val holds exactly 50,000  — 50,000
+  [PASS] no key appears twice within val  — 0 repeated
+  [PASS] every val record carries its source game ID
+  [PASS] test holds exactly 50,000  — 50,000
+  [PASS] no key appears twice within test  — 0 repeated
+  [PASS] every test record carries its source game ID
+  [PASS] no key appears in both splits  — 0 shared
+
+SPREAD — reported only. CW-162 asks that nothing be rebalanced on it, and
+nothing is: the cut above is uniform by hash and never looks at the ply.
+  val  < 20 11,055 (22.1%)   20-60 29,399 (58.8%)   > 60 9,546 (19.1%)
+  test < 20 11,085 (22.2%)   20-60 29,289 (58.6%)   > 60 9,626 (19.3%)
+  val  side to move: w 24,797 (49.6%)  b 25,203 (50.4%)
+  test side to move: w 24,687 (49.4%)  b 25,313 (50.6%)
+
+7/7 checks passed

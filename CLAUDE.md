@@ -513,16 +513,23 @@ it:
   splitting on a bit of that same digest would have sent every game to one split and written one
   full file and one empty one without an error. Two `blake2b` personalisations, pinned by a test.
 - **Within a game, positions are sampled at a randomised 4-6 ply spacing from a start in ply
-  8-12, capped at ten per game by uniform subset.** The opening skip is because the first few
+  8-11, capped at ten per game by uniform subset.** The opening skip is because the first few
   plies repeat across enormous numbers of games and would appear in *both* splits, defeating the
-  game-level separation; starting at 8 rather than 12 costs 0.65% of a split to cross-split
+  game-level separation; starting at 8 rather than 12 costs 0.80% of a split to cross-split
   transpositions (measured, against 0.14% at 12) and buys the opening coverage a held-out set
-  needs. The cap is a **subset, not a truncation**: ten steps reach ply ~55 and two-thirds of
-  games run longer, so keeping the first ten would leave both splits without an endgame — the
-  measured ply distribution runs p50 36, p90 75, max 217. A consequence is that the gaps in the
-  written file are *sums* of 4-6, so verification regenerates each game's schedule and checks
-  membership, which doubles as proof that the pass is reproducible from game IDs alone.
-  Implemented in `ml/scripts/build_heldout_candidates.py`, checked by `measure_candidates.py`.
+  needs. **The window's width is four rather than five so that the side to move comes out
+  balanced by construction.** Two of 8-11 are even and two odd; a five-wide window is three and
+  two, so 60% of games start with White to move, and since a step of 4 or 6 preserves the side to
+  move and only 5 flips it, that bias decays as (1/3)^k instead of vanishing — measured, an 8-12
+  window produced 51.1% White in both splits against 49.7% for 8-11. Getting it from the window
+  costs nothing; the alternative is deleting real positions to fix a figure a mover-relative
+  encoding cannot perceive anyway. The cap is a **subset, not a truncation**: ten steps reach ply
+  ~55 and roughly two-thirds of games run longer, so keeping the first ten would leave both
+  splits without an endgame — the measured ply distribution runs p50 35, p90 75, max 217. A
+  consequence is that the gaps in the written file are *sums* of 4-6, so verification regenerates
+  each game's schedule and checks membership, which doubles as proof that the pass is reproducible
+  from game IDs alone. Implemented in `ml/scripts/build_heldout_candidates.py`, checked by
+  `measure_candidates.py`.
 - **The accepted cost is that the two sources sit on slightly different scales** — deep
   pre-computed analysis against our own 200 ms search. CW-168 measures the correlation and mean
   signed difference once and records it as dataset metadata, so that when validation error stops
@@ -549,6 +556,25 @@ it:
   mirror produce the same tensor, and this key does not collapse them. Keying on the encoder's
   output would — and would also tie the dataset to the model architecture, which is precisely
   what this section exists to prevent.
+- **A key that lands in both held-out splits is given to one of them, not deleted from both.** The
+  winner is `blake2b(key, person=b"tiebreak") % 2`. Two different games reaching one position is a
+  transposition, so the colliding keys are the *commonest* positions in chess, and dropping them
+  everywhere would strip exactly those out of both held-out sets. Nothing leaks either way,
+  because the blocklist is the union of the two splits, so training excludes the key whichever
+  side keeps it. Measured: 711 collisions across 180,011 candidates, split 358/353. Duplicates
+  *within* a split collapse to the record with the smallest `(game_id, ply)` — not the first seen,
+  which would depend on the order the candidate file happens to be in, so a rebuild could swap
+  which copy is in the split without changing anything visible.
+- **The cut from ~88,900 survivors to exactly 50,000 per split is a hash rank**, not a random
+  sample: `blake2b(key, person=b"select")` sorted, first 50,000. A rank because the count has to be
+  exact where a modulus gives roughly n, and a hash for the reason CW-159 hashed rather than
+  seeding an RNG — the outcome depends only on which keys exist, so it survives a rerun or a
+  reordering. It is uniform in what the position contains, and that is checkable rather than
+  asserted: taking 56% of the candidates moved side to move only from 49.7/50.3 to 49.6/50.4, and
+  the two splits' ply spreads (22% under ply 20, 59% in 20-60, 19% past 60) agree to a tenth of a
+  point. A rank correlated with game progress would have surfaced here as a split short of
+  endgames. Implemented in `ml/scripts/select_heldout.py`, pinned by
+  `ml/tests/test_select_heldout.py`.
 - **The test set is frozen once evaluated**, with its checksum in the dataset metadata. It is not
   used for architecture, features, learning rate, epoch count, regularisation, preprocessing, or
   choosing between model versions — validation carries all of those. The pipeline enforces this

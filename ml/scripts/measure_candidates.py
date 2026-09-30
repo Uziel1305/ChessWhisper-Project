@@ -134,9 +134,12 @@ def main():
     say("both splits")
     check(not shared, "no game ID appears in both splits", f"{len(shared):,} shared")
     say("  [NOTE] the dump is streamed throughout — open_pgn yields one handle and "
-        "CandidateSampler")
-    say("         consumes games one at a time; the pass traversed 1,391,423 games "
-        "at flat memory")
+        "CandidateSampler consumes")
+    say("         games one at a time at flat memory. Not checkable from the output "
+        "files, which is why")
+    say("         this is a note and not a check; the build's own report prints how "
+        "many games were")
+    say("         traversed.")
     say()
 
     say("WHAT THE SPLITS LOOK LIKE")
@@ -165,10 +168,14 @@ def main():
     overlap = set(per_split["val"]["keys"]) & set(per_split["test"]["keys"])
     say(f"positions keyed into BOTH splits : {len(overlap):,} "
         f"({100 * len(overlap) / len(per_split['val']['keys']):.2f}% of val)")
-    say("  Different games reaching the same position — the residual the "
-        "game-level split cannot")
-    say("  prevent. CW-162 deletes these from both sides; the margin down to "
-        "50,000 each absorbs it.")
+    say("  Different games reaching the same position — the residual a game-level "
+        "split cannot")
+    say("  prevent. CW-162 gives each of these to one split by hash rather than "
+        "deleting it from")
+    say("  both: colliding keys are transpositions, so they are the commonest "
+        "positions in chess,")
+    say("  and dropping them everywhere would strip those out of the held-out sets "
+        "altogether.")
     say()
 
     say(f"{sum(checks)}/{len(checks)} checks passed")
