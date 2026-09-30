@@ -14,11 +14,11 @@
 // being mated in 5 over being mated in 1 — without it, every mate is the same
 // number and the engine will happily sit on a mate it could have played two
 // moves ago.
-constexpr int MATE_SCORE = 30000;
+constexpr int MATE_SCORE = 40000;
 
 // The initial "worse than anything" value. Deliberately NOT INT_MIN: negamax
 // negates the value it gets back, and -INT_MIN is undefined behaviour.
-constexpr int INF_SCORE = 32000;
+constexpr int INF_SCORE = 42000;
 
 // Caps how deep a line can get, which is also what makes the mate-score test
 // below unambiguous.

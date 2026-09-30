@@ -1,0 +1,47 @@
+records          : 1,023,606
+distinct keys    : 1,023,606  (0 duplicates)
+evals per record : {1: 937611, 2: 67542, 3: 15208, 4: 2957, 5: 288}
+pvs in deepest   : {1: 609514, 2: 88664, 3: 169788, 4: 27829, 5: 126173, 6: 4, 7: 351, 8: 5, 9: 1266, 10: 11, 13: 1}
+deepest is first : 1,023,606/1,023,606 (100.00%)
+
+CONSTANTS TO FREEZE
+  MAX_CP    = 20000
+  Y         = 68
+  MATE_STEP = 10
+
+encoding sign * (MAX_CP + MATE_STEP * (Y - |Z| + 1)):
+  mate in 1    ->   20,680
+  mate in 2    ->   20,670
+  mate in 3    ->   20,660
+  mate in 10   ->   20,590
+  mate in 67   ->   20,020
+  mate in 68   ->   20,010
+  gap above MAX_CP for the longest mate: 10
+
+score kind       : cp 896,724 (87.6%)  mate 126,882 (12.4%)
+|mate| == 0      : 0
+|mate| >= 100    : 0
+
+cp signs, white-relative : {'-': 327024, '+': 451324, '0': 118376}
+cp signs, side-to-move   : {'-': 361927, '+': 416421, '0': 118376}
+mate signs, white-relative : {'-': 46769, '+': 80113}
+mate signs, side-to-move   : {'+': 70806, '-': 56076}
+
+white to move    : 522,515 (51.0%)
+black to move    : 501,091 (49.0%)
+
+|cp| percentiles :
+  p50         80
+  p75        308
+  p90        562
+  p99      3,587
+  p99.9    9,605
+  max     20,000
+
+magnitude buckets (pawns):
+  < 0.5      362,119  ( 35.4%)
+  0.5-1.5    191,474  ( 18.7%)
+  1.5-3      113,981  ( 11.1%)
+  3-6        154,247  ( 15.1%)
+  > 6         74,903  (  7.3%)
+  mate       126,882  ( 12.4%)

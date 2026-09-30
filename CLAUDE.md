@@ -477,3 +477,178 @@ asserted:
 - Rejected alternative: a global `setEvaluator()` with a free `evaluate(pos)`. Simpler
   while there were two pure functions, but it is hidden mutable state, it makes evaluators
   awkward to construct in tests, and it postpones the one refactor that is costly.
+
+### The evaluation model trains on a stored, canonical dataset (decided September 2026)
+
+The multi-layer perceptron evaluator learns from a dataset of about 600,000 positions —
+500,000 training, 50,000 validation, 50,000 held back as a frozen test set — built by the
+Python pipeline in epic CW-158 and kept deliberately independent of whatever model consumes
+it:
+
+- **Every row carries `target_value` beside `raw_cp` and `raw_mate`.** `target_value` is
+  centipawns; the raw fields are what the engine actually reported. Any training-time
+  transformation — squashing to win/draw/loss space, clamping the tail — belongs to the
+  training script, so it can change without regenerating a single row. Raw centipawns are a
+  poor regression target directly, and the measured reason is the **tail**, not the mates:
+  across the uniform 1,023,606-row sample the median `|cp|` is 80 but the 99th percentile is
+  3,587 and the maximum 20,000, and **34.8% of the pool sits at three pawns or more** (15.1%
+  at 3–6, 7.3% above 6, 12.4% mate). A 10% error on a 20,000 target is 2,000 centipawns
+  against 8 on the median — squared, 62,500 times the contribution. Squashing to win/draw/loss
+  space collapses everything past roughly 2,000 cp to one value, which is the right behaviour
+  for an evaluation function. But that is the trainer's problem to solve, not the dataset's to
+  pre-empt.
+- **`target_value` is from the side to move's point of view**, matching the `Evaluator`
+  contract in `eval.hpp`. So `MlpEvaluator` returns its output unchanged and `uci.js` keeps
+  doing the single flip to white that the eval bar and `classification.js` expect. A
+  consequence worth knowing: the validation and test labels need **no** flip, because UCI
+  already reports from the side to move. The evaluation-database labels **do** — that dump is
+  White-relative, established from the data rather than the documentation (CW-159). Two
+  independent tests over 200,000 records agree: `pvs[0]` is the maximum of its PV list for
+  100.0% of white-to-move records and 0.0% of black-to-move ones, and the mean cp where White
+  leads by ≥300 material is +1969 with White to move and +852 with Black to move. Getting this
+  backwards would train the model to invert its own evaluation, and nothing downstream would
+  flag it.
+- **The evaluation dump's record shape, so it is not re-derived.** Each line is
+  `{"fen", "evals": [{"pvs": [{"cp" | "mate", "line"}], "knodes", "depth"}]}`. `evals` is
+  ordered deepest-first — 100.00% of the 1,023,606-row sample — but the label is selected by
+  `max(depth)` anyway, because that is correct by construction rather than by an ordering that
+  merely happens to hold. Within that eval the label is `pvs[0]`, the principal variation, and
+  its `line` is discarded since only the score is wanted. `cp` is clamped by Lichess to
+  ±20,000; 11.6% of records are exactly `cp: 0`; 12.4% carry a mate rather than a cp; the
+  largest `|mate|` anywhere in the dump is 68 and none is 0; and **every key is unique** —
+  0 duplicates in 1,023,606 — so duplicate rejection in the pipeline removes nothing.
+- **Mate becomes `sign * (MAX_CP + MATE_STEP * (Y - |N| + 1))`** for a mate in N, with
+  **`MAX_CP` 20,000, `Y` 68, `MATE_STEP` 10** — so mate in 1 is 20,680, mate in 3 is 20,660,
+  and mate in 68 is 20,010, ten clear of the largest centipawn value. Same conversion for both
+  label sources. The constants are the measured maxima of the 1,023,606-row uniform sample and
+  are **frozen, never recomputed at use**: a regenerated pool with a different `Y` would
+  silently change what every previously written target means. The conversion asserts
+  `|N| <= Y`, so a record from outside the pool the constants came from fails loudly instead
+  of encoding to a value inside the centipawn range, or with an inverted sign.
+- **This replaced `sign * (30000 - 100 * N)`** once the dump had been inspected. That form put
+  mate targets an order of magnitude above ordinary evaluations, and it placed mate in 1 at
+  29,900 against `isMateScore`'s 29,936 threshold — 36 centipawns of clearance between a
+  training target and the engine's own proven-mate band.
+- **This puts three different mate encodings in the project.** They serve different jobs and
+  are not being unified, so the table is the defence against confusing them:
+
+  | Where | Encoding |
+  |---|---|
+  | Engine search (`search.hpp`) | `MATE_SCORE` 30000, one per **ply**: mated at ply p is `-MATE_SCORE + p` |
+  | Facade output (`uci.js`) | clamped to ±10000, so the game server only ever sees a plain number |
+  | Dataset `target_value` | from 20010 to 20680, ten per **move** closer to mate: mate in N is `20000 + 10 * (69 - N)` |
+
+- **`MlpEvaluator::evaluate` now sits nowhere near the engine's mate band, by construction.**
+  `isMateScore` in `search.hpp` treats anything past `MATE_SCORE - MAX_PLY` — 29,936 — as a
+  mate, and `search()` breaks out of iterative deepening when it sees one, so a net that
+  overshot into that band on a position with no mate in it would make the engine stop
+  deepening early and print `score mate N` with a meaningless N. Under the current target
+  scale the largest value the model is ever trained toward is 20,680, so the clearance is over
+  9,000 rather than the 36 the old encoding left. A clamp at ±25,000 is still worth having,
+  because a regression head is not bounded by the range of its targets — but it is a guard
+  rail now, not the only thing standing between the evaluator and a broken search. Real mates
+  still report correctly: they come from the terminal-position path, never from the evaluator.
+- **The two label sources have different jobs.** Training labels come from the public Lichess
+  evaluation database, which is already analysed to high depth and costs nothing to label.
+  Validation and test come from real Lichess games and are evaluated by us at a fixed 200 ms
+  under one pinned Stockfish configuration. The reason for the split is that **only the games
+  database carries game IDs**, and game IDs are what make the next point possible.
+- **Validation and test are separated by game, not by position.** Consecutive positions in one
+  game are nearly identical, so splitting at the position level leaks: the same middlegame
+  would sit on both sides of the boundary and the held-out numbers would flatter the model. A
+  game contributes to validation or to test, never both. Which one comes from a hash of the game
+  ID under a **separate** personalisation from the one deciding whether the game is sampled at
+  all: acceptance keeps 1 game in 64, which forces the accept digest's low bit to zero, so
+  splitting on a bit of that same digest would have sent every game to one split and written one
+  full file and one empty one without an error. Two `blake2b` personalisations, pinned by a test.
+- **Within a game, positions are sampled at a randomised 4-6 ply spacing from a start in ply
+  8-11, capped at ten per game by uniform subset.** The opening skip is because the first few
+  plies repeat across enormous numbers of games and would appear in *both* splits, defeating the
+  game-level separation; starting at 8 rather than 12 costs 0.80% of a split to cross-split
+  transpositions (measured, against 0.14% at 12) and buys the opening coverage a held-out set
+  needs. **The window's width is four rather than five so that the side to move comes out
+  balanced by construction.** Two of 8-11 are even and two odd; a five-wide window is three and
+  two, so 60% of games start with White to move, and since a step of 4 or 6 preserves the side to
+  move and only 5 flips it, that bias decays as (1/3)^k instead of vanishing — measured, an 8-12
+  window produced 51.1% White in both splits against 49.7% for 8-11. Getting it from the window
+  costs nothing; the alternative is deleting real positions to fix a figure a mover-relative
+  encoding cannot perceive anyway. The cap is a **subset, not a truncation**: ten steps reach ply
+  ~55 and roughly two-thirds of games run longer, so keeping the first ten would leave both
+  splits without an endgame — the measured ply distribution runs p50 35, p90 75, max 217. A
+  consequence is that the gaps in the written file are *sums* of 4-6, so verification regenerates
+  each game's schedule and checks membership, which doubles as proof that the pass is reproducible
+  from game IDs alone. Implemented in `ml/scripts/build_heldout_candidates.py`, checked by
+  `measure_candidates.py`.
+- **The accepted cost is that the two sources sit on slightly different scales** — deep
+  pre-computed analysis against our own 200 ms search. CW-168 measures the correlation and mean
+  signed difference once and records it as dataset metadata, so that when validation error stops
+  tracking training error it is possible to tell overfitting from a label mismatch.
+- **Deduplication keys on the three FEN fields the model can perceive** — piece placement, side
+  to move, castling rights. Not the en-passant square, and not the halfmove clock or fullmove
+  number. The rule is that the key mirrors the model's inputs: two positions the model cannot
+  tell apart must never land on opposite sides of the train/test boundary, and two it can tell
+  apart must not be collapsed into one. v1 takes castling rights as a feature and takes no
+  en-passant feature, so that is where the line falls; a later version that adds en passant
+  moves it. When key and encoding disagree, **coarsen** — a coarser key can only exclude *more*
+  from training, which costs a little data and cannot cause leakage, while a finer key errs the
+  other way.
+- **Dropping en passant also removed a silent-divergence risk.** python-chess writes the square
+  only when the capture is legal; `chess.hpp`'s default writes it whenever an enemy pawn is
+  merely adjacent, without checking legality (`makeMove`'s `EXACT` template parameter adds that
+  check, and we use the default); what the Lichess dump does is undocumented. Had any two of
+  those disagreed, the same position would have produced two keys, the blocklist would have
+  failed to match, and held-out positions would have leaked into training with nothing
+  reporting it. None of that matters once the field is not keyed on — and a four-field FEN from
+  the dump and a six-field one from python-chess now key identically with no special case.
+  Implemented in `ml/scripts/canonical.py`, pinned by `ml/tests/test_canonical.py`.
+- **Known residual, accepted:** under a mover-relative input encoding, a position and its colour
+  mirror produce the same tensor, and this key does not collapse them. Keying on the encoder's
+  output would — and would also tie the dataset to the model architecture, which is precisely
+  what this section exists to prevent.
+- **A key that lands in both held-out splits is given to one of them, not deleted from both.** The
+  winner is `blake2b(key, person=b"tiebreak") % 2`. Two different games reaching one position is a
+  transposition, so the colliding keys are the *commonest* positions in chess, and dropping them
+  everywhere would strip exactly those out of both held-out sets. Nothing leaks either way,
+  because the blocklist is the union of the two splits, so training excludes the key whichever
+  side keeps it. Measured: 711 collisions across 180,011 candidates, split 358/353. Duplicates
+  *within* a split collapse to the record with the smallest `(game_id, ply)` — not the first seen,
+  which would depend on the order the candidate file happens to be in, so a rebuild could swap
+  which copy is in the split without changing anything visible.
+- **The cut from ~88,900 survivors to exactly 50,000 per split is a hash rank**, not a random
+  sample: `blake2b(key, person=b"select")` sorted, first 50,000. A rank because the count has to be
+  exact where a modulus gives roughly n, and a hash for the reason CW-159 hashed rather than
+  seeding an RNG — the outcome depends only on which keys exist, so it survives a rerun or a
+  reordering. It is uniform in what the position contains, and that is checkable rather than
+  asserted: taking 56% of the candidates moved side to move only from 49.7/50.3 to 49.6/50.4, and
+  the two splits' ply spreads (22% under ply 20, 59% in 20-60, 19% past 60) agree to a tenth of a
+  point. A rank correlated with game progress would have surfaced here as a split short of
+  endgames. Implemented in `ml/scripts/select_heldout.py`, pinned by
+  `ml/tests/test_select_heldout.py`.
+- **The test set is frozen once evaluated**, with its checksum in the dataset metadata. It is not
+  used for architecture, features, learning rate, epoch count, regularisation, preprocessing, or
+  choosing between model versions — validation carries all of those. The pipeline enforces this
+  structurally rather than by discipline: training is filtered against a blocklist that is the
+  union of the validation and test keys, and no training code path opens the test file.
+- **That blocklist is why the pipeline builds the held-out splits first.** It reads as a strange
+  order — the smallest splits before the largest — but training cannot be filtered against
+  something that does not exist yet.
+- **Class balance would be corrected by undersampling only** — real Lichess positions removed,
+  never synthesised or duplicated. Mirrored positions are rejected specifically, and not only
+  on principle: mirroring maps a position to one carrying the *same* side-to-move target,
+  because the mover's advantage travels with the mover. It rebalances whose turn it is, not
+  the sign distribution, so it would not fix the thing it appears to fix. What it would
+  genuinely buy — colour symmetry — belongs in the input encoding instead, by presenting the
+  board from the mover's point of view, which makes the symmetry structural and the
+  augmentation an identity function.
+- **In the event, the measured pool needed no rebalancing at all**, and the 500,000 is a
+  uniform draw from it. Side to move came out 51.0 / 49.0, which is a single percentage point
+  and is invisible to a model whose input is encoded from the mover's point of view — deleting
+  21,424 real rows would have corrected something the network cannot perceive. Mate frequency
+  came out 12.4%, not the 18.4% the first 200,000 records suggested, so the contiguous slice
+  was simply unrepresentative and the ratio was never far from where it should be. And the
+  magnitude problem that thinning mates was meant to address is not about mates: a third of
+  the pool is at three pawns or more, so the fix is the target transform, which costs no rows
+  and can be revised without regenerating any.
+- Rejected alternative: drawing validation and test from the evaluation database as well. It
+  removes a Stockfish run and roughly a day of work, but that file has no game IDs, so the splits
+  could only be separated by position — which is the leak described above.

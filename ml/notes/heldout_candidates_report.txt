@@ -1,0 +1,52 @@
+CW-161 ACCEPTANCE
+
+val — 90,009 candidates from 10,423 games
+  [PASS] 80,000-100,000 candidates  — 90,009
+  [PASS] every record carries fen, game_id and ply  — 0 incomplete
+  [PASS] every FEN is legal and has a legal move  — 0 bad
+  [PASS] each game's plies are unique and ascending
+  [PASS] no game contributes more than 10
+  [PASS] nothing sampled before ply 8
+  [PASS] every ply is a member of its game's 4-6 ply schedule  — 0 games disagree
+  [PASS] every game belongs to this split by hash  — 0 misassigned
+
+test — 90,002 candidates from 10,378 games
+  [PASS] 80,000-100,000 candidates  — 90,002
+  [PASS] every record carries fen, game_id and ply  — 0 incomplete
+  [PASS] every FEN is legal and has a legal move  — 0 bad
+  [PASS] each game's plies are unique and ascending
+  [PASS] no game contributes more than 10
+  [PASS] nothing sampled before ply 8
+  [PASS] every ply is a member of its game's 4-6 ply schedule  — 0 games disagree
+  [PASS] every game belongs to this split by hash  — 0 misassigned
+
+both splits
+  [PASS] no game ID appears in both splits  — 0 shared
+  [NOTE] the dump is streamed throughout — open_pgn yields one handle and CandidateSampler consumes
+         games one at a time at flat memory. Not checkable from the output files, which is why
+         this is a note and not a check; the build's own report prints how many games were
+         traversed.
+
+WHAT THE SPLITS LOOK LIKE
+
+val
+  candidates per game : 8.64  (distribution {1: 115, 2: 176, 3: 254, 4: 331, 5: 422, 6: 489, 7: 607, 8: 694, 9: 739, 10: 6596})
+  side to move        : w 44,712 (49.7%)  b 45,297 (50.3%)
+  duplicate keys      : 784 (0.87%) — transpositions within the split, removed by CW-162
+  dead draws          : 4 — insufficient material; legal, correctly scored 0.00, kept deliberately
+  ply percentiles     : p10=12  p25=20  p50=35  p75=54  p90=75  p99=117  max=217
+
+test
+  candidates per game : 8.67  (distribution {1: 127, 2: 164, 3: 242, 4: 331, 5: 374, 6: 469, 7: 584, 8: 708, 9: 729, 10: 6650})
+  side to move        : w 44,716 (49.7%)  b 45,286 (50.3%)
+  duplicate keys      : 759 (0.84%) — transpositions within the split, removed by CW-162
+  dead draws          : 4 — insufficient material; legal, correctly scored 0.00, kept deliberately
+  ply percentiles     : p10=12  p25=20  p50=35  p75=54  p90=75  p99=118  max=215
+
+positions keyed into BOTH splits : 711 (0.80% of val)
+  Different games reaching the same position — the residual a game-level split cannot
+  prevent. CW-162 gives each of these to one split by hash rather than deleting it from
+  both: colliding keys are transpositions, so they are the commonest positions in chess,
+  and dropping them everywhere would strip those out of the held-out sets altogether.
+
+17/17 checks passed
