@@ -11,6 +11,7 @@ import androidx.activity.EdgeToEdge;
 import androidx.activity.SystemBarStyle;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -20,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.chesswhisper.R;
+import com.example.chesswhisper.data.auth.AuthRepository;
 import com.example.chesswhisper.data.auth.SessionManager;
 import com.example.chesswhisper.ui.SessionAwareActivity;
 import com.example.chesswhisper.ui.game.GameActivity;
@@ -45,6 +47,7 @@ public class HomeActivity extends SessionAwareActivity {
     private TextView historyEmpty;
     private final GameHistoryAdapter historyAdapter = new GameHistoryAdapter();
     private HomeViewModel viewModel;
+    private final AuthRepository authRepository = new AuthRepository();
     // Registered as a field initializer so it exists before onStart, as the
     // Activity Result API requires. When the game screen finishes — for any
     // reason, so the result code is ignored — the rating and history have both
@@ -112,10 +115,25 @@ public class HomeActivity extends SessionAwareActivity {
         });
         // Queues with whatever the picker has selected (HomeViewModel holds it).
         playButton.setOnClickListener(v -> viewModel.play());
+        findViewById(R.id.logoutButton).setOnClickListener(v -> confirmLogout());
         load();
     }
     private void load(){
         viewModel.load();
+    }
+
+    // Deliberately no navigation here. logout() clears the session first, and
+    // clearSession()'s sessionEnded signal makes SessionAwareActivity go to
+    // LoginActivity with the back stack cleared — navigating here too would
+    // start login twice. Home finishing is also what leaves matchmaking cleanly:
+    // HomeViewModel.onCleared() cancels it and closes the socket. The callback
+    // is empty because Home is already gone by the time the server answers.
+    private void confirmLogout() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.logout_confirm_title)
+                .setPositiveButton(R.string.home_logout, (dialog, which) -> authRepository.logout(() -> { }))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     // Labels come from GameMode, and the checked button is set from the

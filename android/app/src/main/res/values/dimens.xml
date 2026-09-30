@@ -19,7 +19,7 @@
          so short phones keep room for the Recent games card. -->
     <dimen name="hero_height">200dp</dimen>
     <dimen name="brand_text_size">28sp</dimen>
-    <dimen name="brand_icon_text_size">30sp</dimen>
+    <dimen name="brand_logo_size">36dp</dimen>
     <dimen name="stat_value_text_size">26sp</dimen>
     <dimen name="empty_state_drawable_padding">16dp</dimen>
 
@@ -36,7 +36,6 @@
     <dimen name="eval_bar_divider_height">1.5dp</dimen>
     <dimen name="player_card_gap">10dp</dimen>
     <dimen name="player_name_text_size">18sp</dimen>
-    <dimen name="feedback_icon_size">20dp</dimen>
     <dimen name="signal_bars_width">34dp</dimen>
     <dimen name="signal_bars_height">24dp</dimen>
     <dimen name="signal_bar_gap">3dp</dimen>

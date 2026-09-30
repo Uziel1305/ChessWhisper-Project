@@ -11,7 +11,6 @@
     <!-- The home header's wordmark, split so "Whisper" can take the accent colour. -->
     <string name="brand_chess" translatable="false">Chess</string>
     <string name="brand_whisper" translatable="false">Whisper</string>
-    <string name="brand_icon" translatable="false">♞</string>
 
     <string name="home_signed_in_as">Signed in as</string>
     <string name="home_rating_label">Rating</string>
@@ -28,6 +27,8 @@
     <!-- Not in the picker (its feature isn't built), but history can show it. -->
     <string name="mode_retraction">Retraction</string>
     <string name="home_retry">Try again</string>
+    <string name="home_logout">Log out</string>
+    <string name="logout_confirm_title">Log out?</string>
 
     <!-- The Games counter before history has loaded — a real 0 must not flash first. -->
     <string name="home_games_unknown" translatable="false">–</string>

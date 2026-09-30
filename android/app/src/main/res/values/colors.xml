@@ -25,6 +25,8 @@
     <color name="text_on_primary_disabled">#99F3F1FF</color>
     <color name="error_soft">#FFF87171</color>
     <color name="pressed_overlay">#33000000</color>
+    <!-- The adaptive launcher icon's background: the app's own navy. -->
+    <color name="ic_launcher_background">@color/bg_top</color>
 
     <!-- BoardView. Every piece is a Unicode glyph in black ink (white pieces are
          the outline glyphs), so the dark square stays light enough for a thin
@@ -48,8 +50,6 @@
     <color name="feedback_neutral">#FFA5A3C9</color>
     <!-- The signal bars' unfilled bars. -->
     <color name="feedback_bar_dim">#33B9ADFF</color>
-    <!-- White at low alpha; tinted to the verdict colour at runtime (bg_icon_ring). -->
-    <color name="icon_ring_fill">#22FFFFFF</color>
 
     <!-- CW-214's history rows: one colour per outcome. An unrecognised outcome
          falls back to history_draw's neutral grey rather than crashing. -->

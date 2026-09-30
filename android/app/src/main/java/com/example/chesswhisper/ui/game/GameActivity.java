@@ -1,6 +1,5 @@
 package com.example.chesswhisper.ui.game;
 
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -9,7 +8,6 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
@@ -20,7 +18,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.core.widget.ImageViewCompat;
 
 import com.example.chesswhisper.R;
 import com.example.chesswhisper.data.game.GameSocket;
@@ -63,7 +60,6 @@ public class GameActivity extends AppCompatActivity {
     private View opponentCard;
     private View myCard;
     private View feedbackCard;
-    private ImageView feedbackIcon;
     private SignalBarsView feedbackBars;
     private Button resignButton;
     // Guards against an out-of-order move.feedback (the engine answers async,
@@ -123,7 +119,6 @@ public class GameActivity extends AppCompatActivity {
         opponentCard = findViewById(R.id.opponentCard);
         myCard = findViewById(R.id.myCard);
         feedbackCard = findViewById(R.id.feedbackCard);
-        feedbackIcon = findViewById(R.id.feedbackIcon);
         feedbackBars = findViewById(R.id.feedbackBars);
         resignButton = findViewById(R.id.resignButton);
         bindOwnPlayer();
@@ -317,14 +312,11 @@ public class GameActivity extends AppCompatActivity {
         showVerdictStyle(colorRes, bars);
     }
 
-    // The verdict colour goes on the text, the icon and its ring, and the
-    // filled bars together, so the card can never show two verdicts at once.
+    // The verdict colour goes on the text and the filled bars together, so the
+    // card can never show two verdicts at once.
     private void showVerdictStyle(int colorRes, int bars) {
         int color = getColor(colorRes);
         feedbackVerdictText.setTextColor(color);
-        ColorStateList tint = ColorStateList.valueOf(color);
-        ImageViewCompat.setImageTintList(feedbackIcon, tint);
-        feedbackIcon.setBackgroundTintList(tint);
         feedbackBars.setLevel(bars, color);
     }
 

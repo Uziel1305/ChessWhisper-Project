@@ -62,21 +62,23 @@
                 android:paddingHorizontal="@dimen/content_padding"
                 android:paddingBottom="@dimen/section_gap">
 
+                <!-- Logo + wordmark on the left, logout on the right. Inside
+                     heroContent, so the status-bar inset already clears it. -->
                 <LinearLayout
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/section_gap"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <TextView
+                    <!-- Decorative: the wordmark beside it already says ChessWhisper. -->
+                    <ImageView
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_height="@dimen/brand_logo_size"
                         android:layout_marginEnd="6dp"
+                        android:adjustViewBounds="true"
                         android:importantForAccessibility="no"
-                        android:text="@string/brand_icon"
-                        android:textColor="@color/accent_lavender"
-                        android:textSize="@dimen/brand_icon_text_size" />
+                        android:src="@drawable/logo_chesswhisper" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -93,6 +95,22 @@
                         android:textColor="@color/accent_lavender"
                         android:textSize="@dimen/brand_text_size"
                         android:textStyle="bold" />
+
+                    <Space
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <!-- Asks first; the logout itself is AuthRepository.logout(). -->
+                    <ImageButton
+                        android:id="@+id/logoutButton"
+                        android:layout_width="@dimen/icon_circle_size"
+                        android:layout_height="@dimen/icon_circle_size"
+                        android:background="@drawable/bg_icon_circle"
+                        android:contentDescription="@string/home_logout"
+                        android:foreground="?attr/selectableItemBackgroundBorderless"
+                        android:scaleType="center"
+                        android:src="@drawable/ic_logout" />
                 </LinearLayout>
 
                 <!-- Pushes the username block to the hero's bottom. -->
