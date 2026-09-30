@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Play / Resign. A soft glow ring under a purple->indigo gradient pill; muted
+     when disabled (Play starts disabled until the profile has loaded). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <corners android:radius="@dimen/pill_button_height" />
+            <gradient
+                android:angle="0"
+                android:endColor="@color/primary_disabled_end"
+                android:startColor="@color/primary_disabled_start" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/pill_button_height" />
+                    <gradient
+                        android:angle="0"
+                        android:endColor="@color/accent_indigo"
+                        android:startColor="@color/accent_purple" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/pill_button_height" />
+                    <solid android:color="@color/pressed_overlay" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/pill_button_height" />
+                    <gradient
+                        android:angle="0"
+                        android:endColor="@color/accent_indigo"
+                        android:startColor="@color/accent_purple" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/pill_button_height" />
+                    <stroke
+                        android:width="1dp"
+                        android:color="@color/accent_glow" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</selector>

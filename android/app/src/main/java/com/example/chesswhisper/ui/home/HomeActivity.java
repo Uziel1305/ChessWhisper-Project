@@ -1,14 +1,17 @@
 package com.example.chesswhisper.ui.home;
 
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
+import androidx.activity.SystemBarStyle;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -18,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.chesswhisper.R;
+import com.example.chesswhisper.data.auth.AuthRepository;
 import com.example.chesswhisper.data.auth.SessionManager;
 import com.example.chesswhisper.ui.SessionAwareActivity;
 import com.example.chesswhisper.ui.game.GameActivity;
@@ -43,6 +47,7 @@ public class HomeActivity extends SessionAwareActivity {
     private TextView historyEmpty;
     private final GameHistoryAdapter historyAdapter = new GameHistoryAdapter();
     private HomeViewModel viewModel;
+    private final AuthRepository authRepository = new AuthRepository();
     // Registered as a field initializer so it exists before onStart, as the
     // Activity Result API requires. When the game screen finishes — for any
     // reason, so the result code is ignored — the rating and history have both
@@ -60,15 +65,21 @@ public class HomeActivity extends SessionAwareActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         // Draws behind the status and navigation bars; the listener below pads
-        // the content back out from underneath them.
-        EdgeToEdge.enable(this);
+        // the content back out from underneath them. Always light bar icons:
+        // the app is dark-only, and the default auto style would pick dark
+        // icons whenever the phone itself is in light mode.
+        EdgeToEdge.enable(this,
+                SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT));
         setContentView(R.layout.activity_home);
-        // Only the system bars here, unlike RegisterActivity. The app bar is
-        // full-bleed, so the screen's own 24dp is applied per-section inside the
-        // layout rather than to the root.
+        // Only the system bars here, unlike RegisterActivity. The hero image is
+        // full-bleed and runs up under the status bar, so the top inset pads the
+        // text over it (heroContent) rather than the root.
+        View heroContent = findViewById(R.id.heroContent);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.home), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            v.setPadding(systemBars.left, 0, systemBars.right, systemBars.bottom);
+            heroContent.setPadding(heroContent.getPaddingLeft(), systemBars.top,
+                    heroContent.getPaddingRight(), heroContent.getPaddingBottom());
             return insets;
         });
         errorGroup=findViewById(R.id.errorGroup);
@@ -104,10 +115,25 @@ public class HomeActivity extends SessionAwareActivity {
         });
         // Queues with whatever the picker has selected (HomeViewModel holds it).
         playButton.setOnClickListener(v -> viewModel.play());
+        findViewById(R.id.logoutButton).setOnClickListener(v -> confirmLogout());
         load();
     }
     private void load(){
         viewModel.load();
+    }
+
+    // Deliberately no navigation here. logout() clears the session first, and
+    // clearSession()'s sessionEnded signal makes SessionAwareActivity go to
+    // LoginActivity with the back stack cleared — navigating here too would
+    // start login twice. Home finishing is also what leaves matchmaking cleanly:
+    // HomeViewModel.onCleared() cancels it and closes the socket. The callback
+    // is empty because Home is already gone by the time the server answers.
+    private void confirmLogout() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.logout_confirm_title)
+                .setPositiveButton(R.string.home_logout, (dialog, which) -> authRepository.logout(() -> { }))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     // Labels come from GameMode, and the checked button is set from the
@@ -214,6 +240,14 @@ public class HomeActivity extends SessionAwareActivity {
         if (state.status == HomeViewModel.MatchmakingStatus.MATCHED) {
             Intent intent = new Intent(this, GameActivity.class);
             intent.putExtra(GameActivity.EXTRA_MATCH_FOUND, state.matchFound);
+            // match.found describes only the opponent; the game screen's own
+            // player card shows what /users/me already gave this screen. Play is
+            // only enabled once that profile has loaded, so it is present here.
+            HomeViewModel.HomeState home = viewModel.getState().getValue();
+            if (home != null && home.profile != null) {
+                intent.putExtra(GameActivity.EXTRA_MY_USERNAME, home.profile.getUsername());
+                intent.putExtra(GameActivity.EXTRA_MY_RATING, home.profile.getRating());
+            }
             gameLauncher.launch(intent);
             // Consumed as soon as it is acted on. LiveData replays its current
             // value to every new observer, so a MATCHED left standing would

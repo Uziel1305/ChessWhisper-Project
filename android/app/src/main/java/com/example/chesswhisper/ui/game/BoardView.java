@@ -3,6 +3,7 @@ package com.example.chesswhisper.ui.game;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -53,6 +54,9 @@ public class BoardView extends View {
     private final Paint targetHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint piecePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Rect textBounds = new Rect();
+    // Drawing only: the board's rounded corners, matching the glass frame around it.
+    private final Path clipPath = new Path();
+    private float cornerRadius;
 
     public BoardView(Context context) {
         super(context);
@@ -71,6 +75,7 @@ public class BoardView extends View {
         targetHighlightPaint.setColor(context.getColor(R.color.board_legal_target));
         piecePaint.setColor(context.getColor(R.color.black));
         piecePaint.setTextAlign(Paint.Align.CENTER);
+        cornerRadius = getResources().getDimension(R.dimen.board_corner_radius);
 
         setPosition(DEFAULT_FEN, DEFAULT_LEGAL_MOVES);
     }
@@ -112,8 +117,16 @@ public class BoardView extends View {
     }
 
     @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        clipPath.reset();
+        clipPath.addRoundRect(0, 0, w, h, cornerRadius, cornerRadius, Path.Direction.CW);
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        canvas.clipPath(clipPath);
         float squareSize = getWidth() / 8f;
         piecePaint.setTextSize(squareSize * 0.7f);
 

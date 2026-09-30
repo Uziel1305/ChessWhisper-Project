@@ -1,4 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <dimen name="screen_padding">24dp</dimen>
+
+    <!-- The redesign's shared measurements. -->
+    <dimen name="content_padding">20dp</dimen>
+    <dimen name="card_radius">20dp</dimen>
+    <dimen name="card_padding">16dp</dimen>
+    <dimen name="card_gap">12dp</dimen>
+    <dimen name="section_gap">20dp</dimen>
+    <dimen name="icon_circle_size">44dp</dimen>
+    <dimen name="icon_size">22dp</dimen>
+    <dimen name="pill_button_height">56dp</dimen>
+    <dimen name="segment_height">48dp</dimen>
+    <dimen name="segment_radius">14dp</dimen>
+
+    <!-- Home -->
+    <!-- Includes the status-bar inset. Taller on tall screens (values-h720dp),
+         so short phones keep room for the Recent games card. -->
+    <dimen name="hero_height">200dp</dimen>
+    <dimen name="brand_text_size">28sp</dimen>
+    <dimen name="brand_logo_size">36dp</dimen>
+    <dimen name="stat_value_text_size">26sp</dimen>
+    <dimen name="empty_state_drawable_padding">16dp</dimen>
+
+    <!-- Game -->
+    <dimen name="clock_text_size">30sp</dimen>
+    <dimen name="clock_min_width">124dp</dimen>
+    <dimen name="board_frame_padding">6dp</dimen>
+    <dimen name="board_frame_radius">16dp</dimen>
+    <dimen name="board_corner_radius">10dp</dimen>
+    <dimen name="eval_bar_width">20dp</dimen>
+    <dimen name="eval_bar_radius">10dp</dimen>
+    <dimen name="eval_bar_gap">6dp</dimen>
+    <dimen name="eval_bar_glow_height">12dp</dimen>
+    <dimen name="eval_bar_divider_height">1.5dp</dimen>
+    <dimen name="player_card_gap">10dp</dimen>
+    <dimen name="player_name_text_size">18sp</dimen>
+    <dimen name="signal_bars_width">34dp</dimen>
+    <dimen name="signal_bars_height">24dp</dimen>
+    <dimen name="signal_bar_gap">3dp</dimen>
+    <dimen name="divider_width">1dp</dimen>
 </resources>

@@ -3,32 +3,69 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <color name="board_light_square">#FFF0D9B5</color>
-    <color name="board_dark_square">#FFB58863</color>
-    <color name="board_selected_square">#80F7EC59</color>
-    <color name="board_legal_target">#802E7D32</color>
+    <!-- The dark-only redesign's palette. bg_top is sampled from home_hero.png's
+         edges, so the hero's letterbox strip (it is fitEnd, never cropped) melts
+         into the screen behind it. -->
+    <color name="bg_top">#FF13142F</color>
+    <color name="bg_bottom">#FF0C0D20</color>
+    <color name="hero_edge">#FF13142F</color>
+    <color name="hero_edge_transparent">#0013142F</color>
+    <color name="glass_fill">#1AA99BFF</color>
+    <color name="glass_fill_strong">#26A99BFF</color>
+    <color name="glass_stroke">#33B9ADFF</color>
+    <color name="accent_lavender">#FFB4A5FF</color>
+    <color name="accent_purple">#FF8B5CF6</color>
+    <color name="accent_indigo">#FF5B5BE6</color>
+    <color name="accent_glow">#80A78BFA</color>
+    <color name="accent_cyan">#FF67E8F9</color>
+    <color name="text_primary">#FFF3F1FF</color>
+    <color name="text_secondary">#FFA9A6CC</color>
+    <color name="primary_disabled_start">#FF4A3F7A</color>
+    <color name="primary_disabled_end">#FF3A3D7A</color>
+    <color name="text_on_primary_disabled">#99F3F1FF</color>
+    <color name="error_soft">#FFF87171</color>
+    <color name="pressed_overlay">#33000000</color>
+    <!-- The adaptive launcher icon's background: the app's own navy. -->
+    <color name="ic_launcher_background">@color/bg_top</color>
+
+    <!-- BoardView. Every piece is a Unicode glyph in black ink (white pieces are
+         the outline glyphs), so the dark square stays light enough for a thin
+         black outline to read on it (~6:1). -->
+    <color name="board_light_square">#FFE9E5F8</color>
+    <color name="board_dark_square">#FF9A8FD0</color>
+    <color name="board_selected_square">#8067E8F9</color>
+    <color name="board_legal_target">#99302A6E</color>
 
     <!-- CW-149's feedback panel: one colour per classification, best to worst.
          An unrecognised classification (CLAUDE.md: the vocabulary may grow)
-         falls back to feedback_neutral rather than crashing on an unmapped one. -->
-    <color name="feedback_best">#FF2E7D32</color>
-    <color name="feedback_good">#FF558B2F</color>
-    <color name="feedback_inaccuracy">#FFF9A825</color>
-    <color name="feedback_mistake">#FFEF6C00</color>
-    <color name="feedback_blunder">#FFC62828</color>
-    <color name="feedback_neutral">#FF616161</color>
+         falls back to feedback_neutral rather than crashing on an unmapped one.
+         Tuned for the dark background, one distinct hue each (teal, green,
+         yellow, orange, red) so neighbouring verdicts never read as shades of
+         one another; the verdict label is always shown too. -->
+    <color name="feedback_best">#FF2DD4BF</color>
+    <color name="feedback_good">#FF4ADE80</color>
+    <color name="feedback_inaccuracy">#FFFACC15</color>
+    <color name="feedback_mistake">#FFFB923C</color>
+    <color name="feedback_blunder">#FFF87171</color>
+    <color name="feedback_neutral">#FFA5A3C9</color>
+    <!-- The signal bars' unfilled bars. -->
+    <color name="feedback_bar_dim">#33B9ADFF</color>
 
     <!-- CW-214's history rows: one colour per outcome. An unrecognised outcome
          falls back to history_draw's neutral grey rather than crashing. -->
-    <color name="history_win">#FF2E7D32</color>
-    <color name="history_loss">#FFC62828</color>
-    <color name="history_draw">#FF616161</color>
+    <color name="history_win">#FF4ADE80</color>
+    <color name="history_loss">#FFF87171</color>
+    <color name="history_draw">#FFA5A3C9</color>
 
     <!-- CW-153's eval bar: White's share and Black's share of the bar, plus the
          mate label's colour on each. A label always sits on its owner's own
          fill, so each label colour is picked to contrast with that fill. -->
-    <color name="eval_bar_white">#FFF0F0F0</color>
-    <color name="eval_bar_black">#FF3A3A3A</color>
-    <color name="eval_bar_label_on_white">#FF212121</color>
-    <color name="eval_bar_label_on_black">#FFFAFAFA</color>
+    <color name="eval_bar_white">#FFEDE9FE</color>
+    <color name="eval_bar_black">#FF1C1A3F</color>
+    <color name="eval_bar_label_on_white">#FF1C1A3F</color>
+    <color name="eval_bar_label_on_black">#FFEDE9FE</color>
+    <!-- The soft band and bright line on the White/Black boundary. -->
+    <color name="eval_bar_glow">#CCB4A5FF</color>
+    <color name="eval_bar_glow_transparent">#00B4A5FF</color>
+    <color name="eval_bar_divider">#FFFFFFFF</color>
 </resources>

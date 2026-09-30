@@ -1,111 +1,239 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Bare host for BoardView — see GameActivity for why this exists ahead of CW-41. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  The game screen, top to bottom: opponent card, board (with the eval bar in an
+  eval game), feedback card (feedback game only), own card, Resign.
+  The root only carries the system-bar insets (GameActivity pads it); the
+  column inside carries the screen's own spacing, since setPadding replaces.
+  With no MatchFound extra (bare adb launch) every card stays GONE and only the
+  board shows, as before.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/game"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
+    android:background="@drawable/bg_app"
     tools:context=".ui.game.GameActivity">
 
-    <!-- Opponent's name and rating, above their clock. GONE with no MatchFound extra. -->
-    <TextView
-        android:id="@+id/opponentNameText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceTitleMedium"
-        android:visibility="gone"
-        tools:text="opponent_username"
-        tools:visibility="visible" />
-
-    <TextView
-        android:id="@+id/opponentRatingText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="4dp"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:visibility="gone"
-        tools:text="1200"
-        tools:visibility="visible" />
-
-    <!-- Opponent's clock, above the board. GONE with no MatchFound extra (manual check). -->
-    <TextView
-        android:id="@+id/opponentClockText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:textAppearance="?attr/textAppearanceHeadlineSmall"
-        android:visibility="gone"
-        tools:text="10:00"
-        tools:visibility="visible" />
-
-    <!-- The board, with the eval bar (CW-153) beside it. The bar is GONE outside an
-         eval-mode game, and a GONE child takes no width, so in every other mode the
-         board fills the row exactly as it did before this row existed. The bar's
-         match_parent height inside this wrap_content row is LinearLayout's
-         two-pass case: it is re-measured to the height the square board settled
-         on, so the two always line up without either view knowing the other. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingHorizontal="@dimen/card_padding"
+        android:paddingVertical="@dimen/card_gap">
 
-        <com.example.chesswhisper.ui.game.EvalBarView
-            android:id="@+id/evalBarView"
-            android:layout_width="28dp"
-            android:layout_height="match_parent"
-            android:layout_marginEnd="4dp"
-            android:visibility="gone"
-            tools:visibility="visible" />
-
-        <com.example.chesswhisper.ui.game.BoardView
-            android:id="@+id/boardView"
-            android:layout_width="0dp"
+        <!-- Opponent: name and rating, clock. GONE with no MatchFound extra. -->
+        <LinearLayout
+            android:id="@+id/opponentCard"
+            style="@style/GlassCard"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible">
 
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/player_card_gap"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/opponentNameText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/player_name_text_size"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="opponent_username"
+                    tools:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/opponentRatingText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="@color/text_secondary"
+                    android:visibility="gone"
+                    tools:text="1200"
+                    tools:visibility="visible" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/opponentClockText"
+                style="@style/ClockPill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                tools:text="10:00"
+                tools:visibility="visible" />
+        </LinearLayout>
+
+        <!-- Takes all the height the cards leave, so the board is as large as
+             the width allows and shrinks on short screens instead of pushing
+             Resign off. -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginVertical="@dimen/card_gap"
+            android:layout_weight="1">
+
+            <!-- The board, with the eval bar (CW-153) beside it, in one glass frame.
+                 The bar is GONE outside an eval-mode game, and a GONE child takes
+                 no width, so in every other mode the board fills the row. The
+                 bar's match_parent height inside this wrap_content row is
+                 LinearLayout's two-pass case: it is re-measured to the height the
+                 square board settled on, so the two always line up without either
+                 view knowing the other. -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_board_frame"
+                android:orientation="horizontal"
+                android:padding="@dimen/board_frame_padding">
+
+                <com.example.chesswhisper.ui.game.EvalBarView
+                    android:id="@+id/evalBarView"
+                    android:layout_width="@dimen/eval_bar_width"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="@dimen/eval_bar_gap"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
+                <com.example.chesswhisper.ui.game.BoardView
+                    android:id="@+id/boardView"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Instant-feedback panel (CW-149). GONE outside a feedback-mode game —
+             mode is not known until match.found, and classic must show nothing at
+             all, not even the placeholder (see GameActivity). The verdict and
+             bars both take the verdict's colour; the bars fill by quality. The
+             card's own even padding frames the text on the left and the bars on
+             the right. -->
+        <LinearLayout
+            android:id="@+id/feedbackCard"
+            style="@style/GlassCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/card_gap"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/feedbackVerdictText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="2"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="Blunder"
+                    tools:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/feedbackLossText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFeatureSettings="tnum"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="@color/text_secondary"
+                    android:visibility="gone"
+                    tools:text="-2.80"
+                    tools:visibility="visible" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="@dimen/divider_width"
+                android:layout_height="@dimen/signal_bars_height"
+                android:layout_marginHorizontal="@dimen/card_padding"
+                android:background="@color/glass_stroke" />
+
+            <com.example.chesswhisper.ui.game.SignalBarsView
+                android:id="@+id/feedbackBars"
+                android:layout_width="@dimen/signal_bars_width"
+                android:layout_height="@dimen/signal_bars_height"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
+
+        <!-- Own player: name and rating (passed from Home), clock. -->
+        <LinearLayout
+            android:id="@+id/myCard"
+            style="@style/GlassCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/player_card_gap"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/myNameText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="@string/game_you"
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/player_name_text_size"
+                    android:textStyle="bold"
+                    tools:text="testuser_me" />
+
+                <!-- GONE when Home passed no rating. -->
+                <TextView
+                    android:id="@+id/myRatingText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="@color/text_secondary"
+                    android:visibility="gone"
+                    tools:text="1000"
+                    tools:visibility="visible" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/myClockText"
+                style="@style/ClockPill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                tools:text="10:00"
+                tools:visibility="visible" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/resignButton"
+            style="@style/PrimaryPillButton"
+            android:layout_width="match_parent"
+            android:layout_marginTop="@dimen/card_gap"
+            android:text="@string/resign"
+            android:visibility="gone"
+            app:icon="@drawable/ic_flag"
+            tools:visibility="visible" />
     </LinearLayout>
-
-    <!-- Instant-feedback panel (CW-149). GONE outside a feedback-mode game —
-         mode is not known until match.found, and classic must show nothing at
-         all, not even the placeholder text (see GameActivity). -->
-    <TextView
-        android:id="@+id/feedbackVerdictText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:textAppearance="?attr/textAppearanceTitleMedium"
-        android:visibility="gone"
-        tools:text="Blunder"
-        tools:visibility="visible" />
-
-    <TextView
-        android:id="@+id/feedbackLossText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:visibility="gone"
-        tools:text="-2.80"
-        tools:visibility="visible" />
-
-    <!-- Own clock, below the board. -->
-    <TextView
-        android:id="@+id/myClockText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:textAppearance="?attr/textAppearanceHeadlineSmall"
-        android:visibility="gone"
-        tools:text="10:00"
-        tools:visibility="visible" />
-
-    <Button
-        android:id="@+id/resignButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/resign"
-        android:visibility="gone"
-        tools:visibility="visible" />
-
-</LinearLayout>
+</FrameLayout>

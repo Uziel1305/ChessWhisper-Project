@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Decorative illustration for the empty "Recent games" card: a lavender king
+     with two small cyan sparkles. Carries no meaning of its own. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="72dp"
+    android:height="72dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- cross -->
+    <path
+        android:fillColor="@color/accent_lavender"
+        android:pathData="M22.5,3h3v4h4v3h-4v4h-3v-4h-4v-3h4z" />
+    <!-- head -->
+    <path
+        android:fillColor="@color/accent_lavender"
+        android:pathData="M16,15h16l-3,10h-10z" />
+    <!-- collar -->
+    <path
+        android:fillColor="@color/accent_lavender"
+        android:pathData="M18,26h12v3h-12z" />
+    <!-- body -->
+    <path
+        android:fillColor="@color/accent_lavender"
+        android:pathData="M20,30h8l2.5,8h-13z" />
+    <!-- base -->
+    <path
+        android:fillColor="@color/accent_lavender"
+        android:pathData="M15,39h18a1.5,1.5 0,0 1,1.5 1.5v1a1.5,1.5 0,0 1,-1.5 1.5h-18a1.5,1.5 0,0 1,-1.5 -1.5v-1a1.5,1.5 0,0 1,1.5 -1.5z" />
+    <!-- sparkles -->
+    <path
+        android:fillColor="@color/accent_cyan"
+        android:pathData="M9,16l1,2.5l2.5,1l-2.5,1l-1,2.5l-1,-2.5l-2.5,-1l2.5,-1z" />
+    <path
+        android:fillColor="@color/accent_cyan"
+        android:pathData="M39,24l0.75,1.75l1.75,0.75l-1.75,0.75l-0.75,1.75l-0.75,-1.75l-1.75,-0.75l1.75,-0.75z" />
+</vector>

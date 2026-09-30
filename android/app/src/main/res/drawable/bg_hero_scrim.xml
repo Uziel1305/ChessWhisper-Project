@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Laid over the hero: fades its left side (behind the title and username)
+     and its bottom edge into the background colour, so text stays readable
+     and the image has no hard seam against the content below. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="0"
+                android:centerColor="@color/hero_edge_transparent"
+                android:centerX="0.55"
+                android:endColor="@color/hero_edge_transparent"
+                android:startColor="@color/hero_edge" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="90"
+                android:centerColor="@color/hero_edge_transparent"
+                android:centerY="0.25"
+                android:endColor="@color/hero_edge_transparent"
+                android:startColor="@color/hero_edge" />
+        </shape>
+    </item>
+</layer-list>
