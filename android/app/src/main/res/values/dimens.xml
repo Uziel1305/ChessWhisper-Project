@@ -28,5 +28,17 @@
     <dimen name="clock_min_width">124dp</dimen>
     <dimen name="board_frame_padding">6dp</dimen>
     <dimen name="board_frame_radius">16dp</dimen>
-    <dimen name="eval_bar_radius">8dp</dimen>
+    <dimen name="board_corner_radius">10dp</dimen>
+    <dimen name="eval_bar_width">20dp</dimen>
+    <dimen name="eval_bar_radius">10dp</dimen>
+    <dimen name="eval_bar_gap">6dp</dimen>
+    <dimen name="eval_bar_glow_height">12dp</dimen>
+    <dimen name="eval_bar_divider_height">1.5dp</dimen>
+    <dimen name="player_card_gap">10dp</dimen>
+    <dimen name="player_name_text_size">18sp</dimen>
+    <dimen name="feedback_icon_size">20dp</dimen>
+    <dimen name="signal_bars_width">34dp</dimen>
+    <dimen name="signal_bars_height">24dp</dimen>
+    <dimen name="signal_bar_gap">3dp</dimen>
+    <dimen name="divider_width">1dp</dimen>
 </resources>

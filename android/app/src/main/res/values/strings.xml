@@ -61,6 +61,9 @@
     <string name="game_result_rating_change">New rating: %1$d (%2$s)</string>
     <string name="game_result_back_home">Back to Home</string>
 
+    <!-- The own player card's name if Home passed none (e.g. a bare adb launch). -->
+    <string name="game_you">You</string>
+
     <string name="resign">Resign</string>
     <string name="resign_confirm_title">Resign?</string>
     <string name="resign_confirm_message">Are you sure you want to resign this game?</string>

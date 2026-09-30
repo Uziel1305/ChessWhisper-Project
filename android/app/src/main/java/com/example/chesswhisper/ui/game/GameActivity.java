@@ -1,5 +1,7 @@
 package com.example.chesswhisper.ui.game;
 
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -7,11 +9,18 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.SystemBarStyle;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.widget.ImageViewCompat;
 
 import com.example.chesswhisper.R;
 import com.example.chesswhisper.data.game.GameSocket;
@@ -51,6 +60,11 @@ public class GameActivity extends AppCompatActivity {
     private TextView myClockText;
     private TextView feedbackVerdictText;
     private TextView feedbackLossText;
+    private View opponentCard;
+    private View myCard;
+    private View feedbackCard;
+    private ImageView feedbackIcon;
+    private SignalBarsView feedbackBars;
     private Button resignButton;
     // Guards against an out-of-order move.feedback (the engine answers async,
     // so a later ply's verdict can arrive before an earlier one's — see
@@ -86,7 +100,17 @@ public class GameActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Light bar icons always — the app is dark-only (see HomeActivity).
+        EdgeToEdge.enable(this,
+                SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT));
         setContentView(R.layout.activity_game);
+        // The layout keeps its own spacing on an inner column, so the root can
+        // take the system-bar insets as its whole padding.
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.game), (v, insets) -> {
+            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return insets;
+        });
 
         boardView = findViewById(R.id.boardView);
         evalBarView = findViewById(R.id.evalBarView);
@@ -96,7 +120,13 @@ public class GameActivity extends AppCompatActivity {
         myClockText = findViewById(R.id.myClockText);
         feedbackVerdictText = findViewById(R.id.feedbackVerdictText);
         feedbackLossText = findViewById(R.id.feedbackLossText);
+        opponentCard = findViewById(R.id.opponentCard);
+        myCard = findViewById(R.id.myCard);
+        feedbackCard = findViewById(R.id.feedbackCard);
+        feedbackIcon = findViewById(R.id.feedbackIcon);
+        feedbackBars = findViewById(R.id.feedbackBars);
         resignButton = findViewById(R.id.resignButton);
+        bindOwnPlayer();
         resignButton.setOnClickListener(v -> confirmResign());
 
         // Leaving mid-game (Back) is treated the same as tapping Resign - the
@@ -128,6 +158,7 @@ public class GameActivity extends AppCompatActivity {
                 opponentRatingText.setText(String.valueOf(matchFound.opponent.rating));
                 opponentNameText.setVisibility(View.VISIBLE);
                 opponentRatingText.setVisibility(View.VISIBLE);
+                opponentCard.setVisibility(View.VISIBLE);
             }
             if (matchFound.clocks != null) {
                 startClocks(matchFound);
@@ -137,10 +168,11 @@ public class GameActivity extends AppCompatActivity {
             // no layout space) for every other mode, including the no-
             // MatchFound manual-launch path where mode is never read at all.
             if ("feedback".equals(matchFound.mode)) {
+                feedbackCard.setVisibility(View.VISIBLE);
                 feedbackVerdictText.setVisibility(View.VISIBLE);
                 feedbackLossText.setVisibility(View.VISIBLE);
                 feedbackVerdictText.setText(R.string.feedback_placeholder);
-                feedbackVerdictText.setTextColor(getColor(R.color.feedback_neutral));
+                showVerdictStyle(R.color.feedback_neutral, 0);
             }
             // Same rule for the eval bar: only an eval game shows it. It starts
             // at 50/50 until the first eval.update, and is oriented like the
@@ -243,37 +275,71 @@ public class GameActivity extends AppCompatActivity {
     // and classification-threshold decisions both call this out) — anything
     // not in this list still renders, raw and in a neutral colour, rather
     // than crashing or silently dropping the verdict.
+    // bars is the signal indicator's filled count, best 5 down to blunder 1 —
+    // a display of the server's verdict, not a second judgement of the move.
     private void applyClassification(String classification) {
         int colorRes;
         String label;
+        int bars;
         switch (classification) {
             case "best":
                 colorRes = R.color.feedback_best;
                 label = getString(R.string.feedback_verdict_best);
+                bars = 5;
                 break;
             case "good":
                 colorRes = R.color.feedback_good;
                 label = getString(R.string.feedback_verdict_good);
+                bars = 4;
                 break;
             case "inaccuracy":
                 colorRes = R.color.feedback_inaccuracy;
                 label = getString(R.string.feedback_verdict_inaccuracy);
+                bars = 3;
                 break;
             case "mistake":
                 colorRes = R.color.feedback_mistake;
                 label = getString(R.string.feedback_verdict_mistake);
+                bars = 2;
                 break;
             case "blunder":
                 colorRes = R.color.feedback_blunder;
                 label = getString(R.string.feedback_verdict_blunder);
+                bars = 1;
                 break;
             default:
                 colorRes = R.color.feedback_neutral;
                 label = classification;
+                bars = 0;
                 break;
         }
         feedbackVerdictText.setText(label);
-        feedbackVerdictText.setTextColor(getColor(colorRes));
+        showVerdictStyle(colorRes, bars);
+    }
+
+    // The verdict colour goes on the text, the icon and its ring, and the
+    // filled bars together, so the card can never show two verdicts at once.
+    private void showVerdictStyle(int colorRes, int bars) {
+        int color = getColor(colorRes);
+        feedbackVerdictText.setTextColor(color);
+        ColorStateList tint = ColorStateList.valueOf(color);
+        ImageViewCompat.setImageTintList(feedbackIcon, tint);
+        feedbackIcon.setBackgroundTintList(tint);
+        feedbackBars.setLevel(bars, color);
+    }
+
+    // The own player card's name and rating, as Home's /users/me gave them.
+    // Without them (a bare adb launch) the name stays "You" and no rating shows.
+    private void bindOwnPlayer() {
+        String myUsername = getIntent().getStringExtra(EXTRA_MY_USERNAME);
+        if (myUsername != null) {
+            ((TextView) findViewById(R.id.myNameText)).setText(myUsername);
+        }
+        if (getIntent().hasExtra(EXTRA_MY_RATING)) {
+            TextView myRatingText = findViewById(R.id.myRatingText);
+            myRatingText.setText(String.valueOf(getIntent().getIntExtra(EXTRA_MY_RATING, 0)));
+            myRatingText.setVisibility(View.VISIBLE);
+        }
     }
 
     // cpLoss is a non-negative integer number of centipawns (server-side
@@ -336,6 +402,8 @@ public class GameActivity extends AppCompatActivity {
 
         opponentClockText.setVisibility(View.VISIBLE);
         myClockText.setVisibility(View.VISIBLE);
+        opponentCard.setVisibility(View.VISIBLE);
+        myCard.setVisibility(View.VISIBLE);
         resignButton.setVisibility(View.VISIBLE);
         updateClockDisplay();
 

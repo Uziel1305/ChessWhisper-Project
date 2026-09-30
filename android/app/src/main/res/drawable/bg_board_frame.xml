@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The glass frame around the board (and the eval bar, in eval mode): a
+     faint outer glow ring, then the glass card itself with a brighter edge. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="@dimen/board_frame_radius" />
+            <stroke
+                android:width="3dp"
+                android:color="@color/accent_glow" />
+        </shape>
+    </item>
+    <item
+        android:bottom="1dp"
+        android:left="1dp"
+        android:right="1dp"
+        android:top="1dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="@dimen/board_frame_radius" />
+            <gradient
+                android:angle="315"
+                android:endColor="@color/glass_fill"
+                android:startColor="@color/glass_fill_strong" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/accent_lavender" />
+        </shape>
+    </item>
+</layer-list>
