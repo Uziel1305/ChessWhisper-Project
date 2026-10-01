@@ -9,7 +9,7 @@ Online chess for Android, with an authoritative game server and a custom C++ eng
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
-<img src="docs/media/hero.gif" width="320" alt="ChessWhisper gameplay">
+<img src="docs/media/hero.gif" width="300" alt="ChessWhisper gameplay">
 
 </div>
 
@@ -20,19 +20,23 @@ Online chess for Android, with an authoritative game server and a custom C++ eng
 - **Server-run clocks:** the server keeps the time and the phone only displays it.
 - **Elo ratings:** every game is rated, and your rating and game history are on the home screen.
 - **Engine evaluation:** a custom C++ engine evaluates every move and shows forced mates as "mate in N".
+- **Legal-move hints:** tap a piece and only its legal squares are highlighted.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/media/eval-mode.gif" width="240" alt="Eval mode game with the evaluation bar beside the board"><br><sub>Eval mode: live evaluation bar</sub></td>
+    <td align="center"><img src="docs/media/feedback-mode.gif" width="240" alt="Feedback mode game rating each move"><br><sub>Feedback mode: every move rated</sub></td>
+    <td align="center"><img src="docs/media/legal-moves.gif" width="240" alt="Tapping a piece highlights its legal squares"><br><sub>Legal-move hints</sub></td>
+  </tr>
+</table>
 
 ## Screenshots
 
 <table>
   <tr>
-    <td align="center"><img src="docs/media/login-home.png" width="240" alt="Login and home screen"><br><sub>Login and home</sub></td>
-    <td align="center"><img src="docs/media/mode-select.png" width="240" alt="Mode selection"><br><sub>Mode selection</sub></td>
-    <td align="center"><img src="docs/media/legal-moves.gif" width="240" alt="Legal-move hints"><br><sub>Legal-move hints</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/media/eval-mode.gif" width="240" alt="Eval mode"><br><sub>Eval mode</sub></td>
-    <td align="center"><img src="docs/media/feedback-mode.gif" width="240" alt="Feedback mode"><br><sub>Feedback mode</sub></td>
-    <td align="center"><img src="docs/media/result-rating.png" width="240" alt="Game result and rating change"><br><sub>Result and rating</sub></td>
+    <td align="center"><img src="docs/media/login.png" width="240" alt="Login screen"><br><sub>Login</sub></td>
+    <td align="center"><img src="docs/media/home.png" width="240" alt="Home screen with rating, recent games and the Classic / Eval bar / Feedback picker"><br><sub>Home: rating, history and mode picker</sub></td>
+    <td align="center"><img src="docs/media/result-rating.png" width="240" alt="Game over dialog showing the result and the new rating"><br><sub>Game over with rating change</sub></td>
   </tr>
 </table>
 

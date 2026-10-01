@@ -56,6 +56,10 @@ Desktop.ini
 # which is what makes ignoring them lossless rather than lossy.
 ml/data/
 
+# ---- README media ----
+# Original screen recordings; the GIFs in docs/media are what the README uses.
+docs/media/raw/
+
 # ---- Python ----
 __pycache__/
 *.pyc
