@@ -56,7 +56,6 @@ public class GameActivity extends AppCompatActivity {
     private TextView opponentClockText;
     private TextView myClockText;
     private TextView feedbackVerdictText;
-    private TextView feedbackLossText;
     private View opponentCard;
     private View myCard;
     private View feedbackCard;
@@ -115,7 +114,6 @@ public class GameActivity extends AppCompatActivity {
         opponentClockText = findViewById(R.id.opponentClockText);
         myClockText = findViewById(R.id.myClockText);
         feedbackVerdictText = findViewById(R.id.feedbackVerdictText);
-        feedbackLossText = findViewById(R.id.feedbackLossText);
         opponentCard = findViewById(R.id.opponentCard);
         myCard = findViewById(R.id.myCard);
         feedbackCard = findViewById(R.id.feedbackCard);
@@ -165,7 +163,6 @@ public class GameActivity extends AppCompatActivity {
             if ("feedback".equals(matchFound.mode)) {
                 feedbackCard.setVisibility(View.VISIBLE);
                 feedbackVerdictText.setVisibility(View.VISIBLE);
-                feedbackLossText.setVisibility(View.VISIBLE);
                 feedbackVerdictText.setText(R.string.feedback_placeholder);
                 showVerdictStyle(R.color.feedback_neutral, 0);
             }
@@ -263,7 +260,12 @@ public class GameActivity extends AppCompatActivity {
         }
         lastAppliedFeedbackPly = event.ply;
         applyClassification(event.classification);
-        feedbackLossText.setText(formatCpLoss(event.cpLoss));
+        // Replaces the label only: colour and bars stay the verdict's, so a lost
+        // lead still reads as a mistake or a blunder. The next verdict resets
+        // the label through applyClassification.
+        if (event.lostAdvantage) {
+            feedbackVerdictText.setText(R.string.feedback_lost_advantage);
+        }
     }
 
     // classification is server vocabulary that may grow (CLAUDE.md's `mode`
@@ -332,17 +334,6 @@ public class GameActivity extends AppCompatActivity {
             myRatingText.setText(String.valueOf(getIntent().getIntExtra(EXTRA_MY_RATING, 0)));
             myRatingText.setVisibility(View.VISIBLE);
         }
-    }
-
-    // cpLoss is a non-negative integer number of centipawns (server-side
-    // contract, CW-147) — this is the one place it becomes pawns for display.
-    // 0 reads as "0.00", not "-0.00": it is a loss of nothing, not a negative
-    // amount.
-    private static String formatCpLoss(int cpLoss) {
-        if (cpLoss == 0) {
-            return "0.00";
-        }
-        return String.format(Locale.US, "-%.2f", cpLoss / 100.0);
     }
 
     private void handleGameEnd(GameEnd event) {

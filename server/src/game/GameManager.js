@@ -9,7 +9,7 @@ const elo = require('../rating/elo');
 const Game = require('./Game');
 const Clock = require('./clock');
 const engineClient = require('../engine/engineClient');
-const { classify, cpLoss } = require('./classification');
+const { classifyMove } = require('./classification');
 
 // The modes whose games ask the engine for anything. Opt-in: classic,
 // retraction and any mode added later cost zero engine calls until they are
@@ -33,6 +33,8 @@ const EVALUATED_MODES = new Set(['eval', 'feedback']);
 //               evals:         Map{ ply → cp }    ← RAM only. White-perspective
 //                              centipawns from the engine, one per evaluated ply.
 //                              Filled as results arrive, in any order.
+//               mates:         Map{ ply → mateIn | null }  ← RAM only. Written
+//                              beside evals, so the two always cover the same plies.
 //               classified:    Set{ ply }         ← RAM only. Plies whose verdict
 //                              has been sent, so none is ever sent twice.
 //               ended:         false               ← RAM only. Set once by
@@ -137,6 +139,7 @@ async function createGame({ mode, timeControl, players }) {
         ply: 0,
         clocks,
         evals: new Map(),
+        mates: new Map(),
         classified: new Set(),
     };
     games.set(id, game);
@@ -264,12 +267,14 @@ function moverOf(ply) {
 // otherwise take down the process over a missing evaluation.
 async function evaluatePly(game, ply, fen, moverUserId) {
     try {
-        // Only cp is stored: it's what classification compares ply to ply.
-        // mateIn (signed, white-perspective, null if no forced mate) belongs to
-        // this ply's bar value alone, so it's passed straight through rather
-        // than kept on the game.
+        // Both are kept, because classification compares them ply to ply: cp
+        // always, and mateIn (signed, white-perspective, null if no forced
+        // mate) when both neighbours are a mate for the same side, where every
+        // cp is the same clamped 10000. Set together, so a ply never has one
+        // without the other.
         const { cp, mateIn } = await engineClient.evaluate(fen);
         game.evals.set(ply, cp);
+        game.mates.set(ply, mateIn);
         publishEvaluation(game, ply, moverUserId, mateIn);
     } catch (err) {
         // A failed evaluation is a gap, not an error the game can act on: the
@@ -333,14 +338,19 @@ function classifyPly(game, ply, moverUserId) {
     // moverUserId, captured at this move's own commit and threaded down from
     // there, never re-derived here. Feedback is private: only the player who
     // made the move hears it.
-    const loss = cpLoss({ evalBefore, evalAfter, mover: moverOf(ply) });
-    const classification = classify(loss);
-    hub.sendToUser(moverUserId, {
-        type: 'move.feedback',
-        ply,
-        classification,
-        cpLoss: loss,
+    const { classification, cpLoss: loss, lostAdvantage } = classifyMove({
+        evalBefore,
+        evalAfter,
+        mateBefore: game.mates.get(ply - 1),
+        mateAfter: game.mates.get(ply),
+        mover: moverOf(ply),
     });
+    // lostAdvantage is added only when true, so an ordinary verdict keeps its
+    // plain { type, ply, classification, cpLoss } shape — the same convention
+    // eval.update follows for mateIn.
+    const event = { type: 'move.feedback', ply, classification, cpLoss: loss };
+    if (lostAdvantage) event.lostAdvantage = true;
+    hub.sendToUser(moverUserId, event);
 
     // Not awaited: the verdict has already been sent, and a slow or failed
     // write must never delay or drop it — the same reasoning evaluatePly
