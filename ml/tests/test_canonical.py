@@ -63,13 +63,13 @@ def test_castling_order_is_normalised():
 # ---------------------------------------------------------------- the scale
 
 def test_mate_in_one_is_the_largest_value_on_the_scale():
-    assert mate_value(1) == MAX_CP + MATE_STEP * Y == 20680
+    assert mate_value(1) == MAX_CP + MATE_STEP * Y == 10680
 
 
 def test_the_longest_mate_still_clears_the_centipawn_range():
     """The whole point of the scale: no mate can be mistaken for an ordinary
     evaluation, however distant it is."""
-    assert mate_value(Y) == MAX_CP + MATE_STEP == 20010
+    assert mate_value(Y) == MAX_CP + MATE_STEP == 10010
     assert mate_value(Y) > MAX_CP
 
 
@@ -154,3 +154,12 @@ def test_no_centipawn_value_can_reach_the_mate_band():
 
 def test_the_white_relative_entry_clamps_before_flipping():
     assert target_from_white(cp=999999, white_to_move=False) == -MAX_CP
+
+
+def test_the_ceiling_clears_the_largest_value_the_engine_produced():
+    """9,165 is the largest |cp| in all 600,000 labeled positions, and it appears
+    in two independently sampled splits with nothing between 4,000 and it — a
+    structural ceiling in Stockfish's output rather than a sample maximum. MAX_CP
+    was re-frozen above it precisely so that no real label is ever clamped."""
+    assert target_from_side_to_move(cp=9165) == 9165
+    assert 9165 < MAX_CP < mate_value(Y)

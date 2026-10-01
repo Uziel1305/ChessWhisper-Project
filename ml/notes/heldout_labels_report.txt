@@ -9,11 +9,11 @@ val — 50,000 rows
   [PASS] every row carries all nine fields  — 0 short
   [PASS] exactly one of raw_cp and raw_mate per row  — 0 with both or neither
   [PASS] every row is marked val  — 0 wrong
-  [PASS] stored target_value equals canonical.py's  — 0 disagree
-  [PASS] no centipawn target exceeds 20,000  — 0 past the ceiling
+  [PASS] the MAX_CP re-freeze moved exactly the mate rows and nothing else  — 2,347 moved, 2,347 mate rows
+  [PASS] no centipawn target exceeds 10,000  — 0 past the ceiling
   rows the cp guard clamped: 0
   written val_labeled.jsonl.zst  1.6 MB
-  sha256  174cbe7f12bb3c882cccfc0a1a45500546ba8bdca5261a9741216ba79348a8c5
+  sha256  d1c9ca0e85f8a23f8ef6c392e742725a81373fb8773a60841f41b30de6617e1c
   score kind : cp 47,653 (95.3%)   mate 2,347 (4.7%)
   |cp|       : p50 240  p90 842  p99 1,317  max 9,165
   |mate|     : max 18  (scale frozen at Y = 68)
@@ -26,14 +26,31 @@ test — 50,000 rows
   [PASS] every row carries all nine fields  — 0 short
   [PASS] exactly one of raw_cp and raw_mate per row  — 0 with both or neither
   [PASS] every row is marked test  — 0 wrong
-  [PASS] stored target_value equals canonical.py's  — 0 disagree
-  [PASS] no centipawn target exceeds 20,000  — 0 past the ceiling
+  [PASS] the MAX_CP re-freeze moved exactly the mate rows and nothing else  — 2,258 moved, 2,258 mate rows
+  [PASS] no centipawn target exceeds 10,000  — 0 past the ceiling
   rows the cp guard clamped: 0
   written test_labeled.jsonl.zst  1.6 MB
-  sha256  df62c2527b56f39c09bf9ca1631663d1c9f111bce04bc6c4998a8abe7cba19fa
+  sha256  f154193e73eb4291830fcc895fb40916e223c7006849677f9b24b07ad36cba6a
   score kind : cp 47,742 (95.5%)   mate 2,258 (4.5%)
   |cp|       : p50 238  p90 848  p99 1,316  max 2,863
   |mate|     : max 17  (scale frozen at Y = 68)
   depth (cp) : p10 14  p50 16  p90 18
 
-16/16 checks passed
+train — 500,000 rows
+  [PASS] exactly 500,000 rows  — 500,000
+  [PASS] no FEN labeled twice  — 0 repeated
+  [PASS] the labeled FENs are exactly the split's FENs  — 0 missing, 0 unexpected
+  [PASS] every row carries all nine fields  — 0 short
+  [PASS] exactly one of raw_cp and raw_mate per row  — 0 with both or neither
+  [PASS] every row is marked train  — 0 wrong
+  [PASS] the MAX_CP re-freeze moved exactly the mate rows and nothing else  — 23,532 moved, 23,532 mate rows
+  [PASS] no centipawn target exceeds 10,000  — 0 past the ceiling
+  rows the cp guard clamped: 0
+  written train_labeled.jsonl.zst  15.2 MB
+  sha256  6c1b3f4bf7ba326a2a21d12372f0200f6940835fcdbcdd05aedbe59cba86a773
+  score kind : cp 476,468 (95.3%)   mate 23,532 (4.7%)
+  |cp|       : p50 251  p90 847  p99 1,325  max 9,165
+  |mate|     : max 19  (scale frozen at Y = 68)
+  depth (cp) : p10 14  p50 16  p90 18
+
+24/24 checks passed

@@ -1,13 +1,18 @@
-"""Labels all 100,000 held-out positions with the pinned Stockfish (CW-163).
+"""Labels every split with the pinned Stockfish — validation, test and training.
 
-Two properties make this pass restartable and its output independent of how it
-was scheduled. It is node-limited, so a label does not depend on machine load or
-on how many workers ran. And ucinewgame runs before every position, so a label
-does not depend on which positions preceded it — without that, the transposition
-table would carry over and the work split would silently change the values.
+Originally CW-163, which covered the 100,000 held-out positions only. Training
+moved from the Lichess evaluation dump to games sampled the same way, so all three
+splits are now labeled here, by one binary at one node budget. That is what makes
+validation error comparable to training loss instead of merely correlated with it.
+
+Two properties make this pass restartable and its output independent of how it was
+scheduled. It is node-limited, so a label does not depend on machine load or on
+how many workers ran. And ucinewgame runs before every position, so a label does
+not depend on which positions preceded it — without that, the transposition table
+would carry over and the work split would silently change the values.
 
 Append-only for the same reason: every row is written as it arrives and a restart
-skips the FENs already present. A 1.5-hour job that cannot resume is a 1.5-hour
+skips the FENs already present. A nine-hour job that cannot resume is a nine-hour
 job you run twice.
 """
 
@@ -19,14 +24,21 @@ import time
 from multiprocessing import Pool
 from pathlib import Path
 
-from build_heldout_candidates import SPLITS
 from canonical import target_from_side_to_move
 from engine import NODE_LIMIT, SHA256, VERSION, Engine
-from select_heldout import OUTPUT as POSITIONS
+from select_heldout import OUTPUT as HELDOUT_POSITIONS
+from select_train import OUTPUT as TRAIN_POSITIONS
 from streams import iter_lines
 
+# All three splits, deliberately in one mapping: the guarantee that training and
+# the held-out sets sit on one scale is exactly the guarantee that they went
+# through this pass with the same binary and the same budget, and a second script
+# for training would be the obvious way to lose it.
+POSITIONS = {**HELDOUT_POSITIONS, "train": TRAIN_POSITIONS}
+TASKS = tuple(POSITIONS)
+
 LABELS = Path(__file__).resolve().parents[1] / "data" / "labels"
-LOG = {s: LABELS / f"{s}_labels.jsonl" for s in SPLITS}
+LOG = {name: LABELS / f"{name}_labels.jsonl" for name in TASKS}
 
 # One process per physical core by default. This CPU has 4 physical behind 8
 # logical, and two engines sharing a core is worse than useless under a node
@@ -87,7 +99,7 @@ def already_labeled(split):
 def main():
     LABELS.mkdir(parents=True, exist_ok=True)
     work = []
-    for split in SPLITS:
+    for split in TASKS:
         repair(LOG[split])
         done = already_labeled(split)
         positions = [json.loads(raw) for raw in iter_lines(POSITIONS[split])]
@@ -103,7 +115,7 @@ def main():
     print(f"{VERSION}  sha256 {SHA256[:12]}...  nodes {NODE_LIMIT:,}  "
           f"workers {WORKERS}")
     started, written = time.time(), 0
-    handles = {s: open(LOG[s], "a", encoding="utf-8") for s in SPLITS}
+    handles = {s: open(LOG[s], "a", encoding="utf-8") for s in TASKS}
     try:
         with Pool(WORKERS, initializer=_init) as pool:
             for split, record, cp, mate, depth, nodes in pool.imap_unordered(

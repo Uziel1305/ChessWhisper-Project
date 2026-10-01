@@ -5,21 +5,35 @@ every file built downstream.
 """
 
 # ---------------------------------------------------------------- the scale
-# Measured over a uniform 1,023,606-row sample of all 409,710,113 records in the
-# Lichess evaluation dump (CW-159). FROZEN: never recomputed from whatever data
-# is at hand. A pool with a different Y would silently change what every
-# previously written target means.
-MAX_CP = 20000      # max |cp| in the dump — Lichess's own clamp, exactly symmetric
-Y = 68              # max |mate| in the dump; no record at 0, none at 100 or beyond
+# Y and MATE_STEP were measured over a uniform 1,023,606-row sample of all
+# 409,710,113 records in the Lichess evaluation dump (CW-159).
+#
+# MAX_CP was too — 20,000, Lichess's own clamp — back when training labels came
+# from that dump. It was RE-FROZEN ONCE, in October 2026, after all 600,000
+# positions had been labeled by our own Stockfish and the dump had stopped being
+# a label source. Measured across the complete dataset: max |cp| is 9,165, and
+# only three rows in 600,000 exceed 4,000 — all three exactly 9,165, appearing in
+# two independently sampled splits with a 5,000-point empty gap beneath them,
+# which is the signature of a structural ceiling in Stockfish 19's normalized cp
+# output rather than a sample maximum. 10,000 is that ceiling rounded up: round
+# enough to read as a decision rather than a reading, high enough that no row is
+# ever clamped, and low enough to halve the distance from the median row
+# (|cp| 239) to the mate band.
+#
+# It does not change again for this dataset version. Every target already written
+# was recomputed from raw_cp and raw_mate when it changed, and a constant
+# re-frozen twice is not frozen.
+MAX_CP = 10000      # ceiling for |cp|; the mate band begins above it
+Y = 68              # max |mate| in the dump; our own labels reach only 19
 MATE_STEP = 10
 
 
 def mate_value(n):
     """A mate in n, as a value on the centipawn scale.
 
-    Runs from 20,010 for mate in 68 up to 20,680 for mate in 1: strictly ordered
+    Runs from 10,010 for mate in 68 up to 10,680 for mate in 1: strictly ordered
     by distance to mate, every value strictly outside the centipawn range, and
-    over 9,000 clear of the engine's own isMateScore threshold of 29,936 — so a
+    over 19,000 clear of the engine's own isMateScore threshold of 29,936 — so a
     trained evaluator cannot stray into the search's proven-mate band.
 
     Replaces sign * (30000 - 100 * n), which put mate targets an order of
@@ -40,22 +54,24 @@ def _value(cp, mate):
     Exactly one must be given.
 
     The clamp is what keeps the invariant the whole scale rests on: every mate
-    target lies strictly outside the centipawn range, mate in 68 being 20,010
-    against a ceiling of 20,000. Before it, that invariant held only because the
-    Lichess dump happens to clamp at +-20,000 — a property of one data source
-    rather than anything this module enforced. mate_value already refuses a
-    distance outside its frozen range; this is the same guard on the other entry.
+    target lies strictly outside the centipawn range, mate in 68 being 10,010
+    against a ceiling of 10,000. Without it the invariant would depend on the
+    engine never exceeding the ceiling, which is a property of Stockfish rather
+    than anything this module enforces. mate_value already refuses a distance
+    outside its frozen range; this is the same guard on the other entry, and an
+    undefended entry beside a defended one is the asymmetry CW-160 exists to
+    close.
 
-    Clamped rather than raising, for two reasons. Lichess clamps the training
-    labels at exactly this value, so both label sources land on one range, and an
-    unclamped held-out label would be a number the training data cannot contain —
-    the model could never be trained toward it, so it would contribute pure
-    artifact to the validation error. And raw_cp keeps what the engine actually
+    Clamped rather than raising, because a value past the ceiling means "winning
+    beyond measure" and flattening it to the ceiling is the right reading, while
+    raising would make the dataset unbuildable over a row whose exact magnitude
+    the training transform discards anyway. raw_cp keeps what the engine actually
     reported, so nothing is lost and any later revision recomputes from it.
 
-    Measured: the largest |cp| across the 100,000 Stockfish-labeled held-out
-    positions is 9,165, so this clamps nothing today. That is what a guard rail
-    looks like when it is installed before it is needed rather than after.
+    Measured: the largest |cp| across all 600,000 labeled positions is 9,165 —
+    and only three rows exceed 4,000, all three at exactly that value — so this
+    clamps nothing today. That is what a guard rail looks like when it is
+    installed before it is needed rather than after.
     """
     if (cp is None) == (mate is None):
         raise ValueError("give exactly one of cp, mate")

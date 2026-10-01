@@ -21,15 +21,15 @@ from pathlib import Path
 
 import zstandard
 
-from build_heldout_candidates import SPLITS
 from canonical import MAX_CP, target_from_side_to_move
 from engine import NODE_LIMIT, SHA256, VERSION
-from label_heldout import LOG
-from select_heldout import OUTPUT as POSITIONS
+# All three splits and their inputs come from label_heldout, which is where the
+# mapping lives — so this pass covers whatever that pass labeled, by construction.
+from label_heldout import LOG, POSITIONS, TASKS
 from streams import iter_lines
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = {s: ROOT / "data" / f"{s}_labeled.jsonl.zst" for s in SPLITS}
+OUTPUT = {s: ROOT / "data" / f"{s}_labeled.jsonl.zst" for s in TASKS}
 REPORT = ROOT / "notes" / "heldout_labels_report.txt"
 
 # Written in this order on every row, so the file is byte-stable and its checksum
@@ -60,7 +60,7 @@ def main():
     say(f"Threads 1   Hash 16 MB   MultiPV 1   go nodes {NODE_LIMIT:,}")
     say()
 
-    for split in SPLITS:
+    for split in TASKS:
         rows = [json.loads(line) for line
                 in LOG[split].read_text(encoding="utf-8").splitlines() if line.strip()]
         wanted = {json.loads(raw)["fen"] for raw in iter_lines(POSITIONS[split])}
@@ -69,8 +69,14 @@ def main():
         incomplete = sum(1 for r in rows if not all(f in r for f in FIELDS))
         ambiguous = sum(1 for r in rows if (r["raw_cp"] is None) == (r["raw_mate"] is None))
         wrong_split = sum(1 for r in rows if r["split"] != split)
-        disagree = sum(1 for r in rows if r["target_value"]
-                       != target_from_side_to_move(cp=r["raw_cp"], mate=r["raw_mate"]))
+        # The logs hold target_value as the labeling pass wrote it, under MAX_CP
+        # 20,000. Re-freezing the ceiling at 10,000 moved every mate target down
+        # by exactly 10,000 and left every centipawn target alone — so the count
+        # of rows that disagree with canonical.py should equal the mate count
+        # exactly. A cp row among them would mean the clamp is eating real data.
+        mate_rows = sum(1 for r in rows if r["raw_mate"] is not None)
+        moved = sum(1 for r in rows if r["target_value"]
+                    != target_from_side_to_move(cp=r["raw_cp"], mate=r["raw_mate"]))
         clamped = sum(1 for r in rows
                       if r["raw_cp"] is not None and abs(r["raw_cp"]) > MAX_CP)
         out_of_range = sum(1 for r in rows if r["raw_cp"] is not None
@@ -86,8 +92,9 @@ def main():
         check(ambiguous == 0, "exactly one of raw_cp and raw_mate per row",
               f"{ambiguous:,} with both or neither")
         check(wrong_split == 0, f"every row is marked {split}", f"{wrong_split:,} wrong")
-        check(disagree == 0, "stored target_value equals canonical.py's",
-              f"{disagree:,} disagree")
+        check(moved == mate_rows,
+              "the MAX_CP re-freeze moved exactly the mate rows and nothing else",
+              f"{moved:,} moved, {mate_rows:,} mate rows")
         check(out_of_range == 0, f"no centipawn target exceeds {MAX_CP:,}",
               f"{out_of_range:,} past the ceiling")
         say(f"  rows the cp guard clamped: {clamped:,}")
@@ -96,6 +103,12 @@ def main():
         cctx = zstandard.ZstdCompressor(level=10)
         with open(OUTPUT[split], "wb") as fh, cctx.stream_writer(fh) as out:
             for r in rows:
+                # Recomputed, never copied. The log's target_value is whatever the
+                # scale said when the pass ran; raw_cp and raw_mate are the
+                # authoritative fields, so the written file always reflects the
+                # scale canonical.py holds now.
+                r["target_value"] = target_from_side_to_move(cp=r["raw_cp"],
+                                                             mate=r["raw_mate"])
                 out.write((json.dumps({f: r[f] for f in FIELDS}) + "\n").encode())
         digest = hashlib.sha256(OUTPUT[split].read_bytes()).hexdigest()
         say(f"  written {OUTPUT[split].name}  "

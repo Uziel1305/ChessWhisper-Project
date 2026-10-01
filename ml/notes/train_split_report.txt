@@ -1,0 +1,23 @@
+TRAINING SELECTION
+
+  candidates          600,004
+  after deduplication 587,055  (-12,949 duplicate keys)
+  after the blocklist 584,884  (-2,171 held-out keys)
+  selected            500,000
+
+ACCEPTANCE
+  [PASS] exactly 500,000 positions  — 500,000
+  [PASS] no key appears twice  — 0 repeated
+  [PASS] no key is in the held-out blocklist  — 0 present
+  [PASS] every row carries its source game ID and ply
+  [PASS] no game is shared with the held-out candidates  — 0 shared
+
+  games contributing  68,919 (7.25 positions each)
+  ply spread          < 20 104,820 (21.0%)   20-60 296,888 (59.4%)   > 60 98,292 (19.7%)
+  side to move        w 248,985 (49.8%)  b 251,015 (50.2%)
+  ply percentiles     p10=14  p25=22  p50=36  p75=55  p90=75  p99=119  max=255
+
+  train_positions.jsonl.zst  10.6 MB
+  sha256  2e4956478951b3935d9ce49f4031b7bd88a2df93ae3ffa9070d5389982324b71
+
+5/5 checks passed

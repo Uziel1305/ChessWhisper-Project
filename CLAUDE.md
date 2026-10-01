@@ -489,26 +489,35 @@ it:
   centipawns; the raw fields are what the engine actually reported. Any training-time
   transformation — squashing to win/draw/loss space, clamping the tail — belongs to the
   training script, so it can change without regenerating a single row. Raw centipawns are a
-  poor regression target directly, and the measured reason is the **tail**, not the mates:
-  across the uniform 1,023,606-row sample the median `|cp|` is 80 but the 99th percentile is
-  3,587 and the maximum 20,000, and **34.8% of the pool sits at three pawns or more** (15.1%
-  at 3–6, 7.3% above 6, 12.4% mate). A 10% error on a 20,000 target is 2,000 centipawns
-  against 8 on the median — squared, 62,500 times the contribution. Squashing to win/draw/loss
-  space collapses everything past roughly 2,000 cp to one value, which is the right behaviour
-  for an evaluation function. But that is the trainer's problem to solve, not the dataset's to
-  pre-empt.
+  poor regression target directly, and **the measured reason changed when the training source
+  did.** Against the evaluation dump it was the centipawn tail: median `|cp|` 80, p99 3,587,
+  maximum 20,000, and 34.8% of the pool at three pawns or more. Against our own labels the
+  centipawn distribution is far tighter — median 251 in training, p90 847, p99 1,325, maximum
+  9,165, so 99% of rows sit inside 13 pawns — and it is the **mate band** that dominates
+  instead: 4.7% of rows carry a target between 10,010 and 10,680, some 43 times the median. A
+  10% error on a 10,600 target is 1,060 centipawns against 25 on the median, which squared is
+  over 1,700 times the contribution. Either way the conclusion is the same: squashing to
+  win/draw/loss space collapses everything past roughly 2,000 cp to one value, which is the
+  right behaviour for an evaluation function. But that is the trainer's problem to solve, not
+  the dataset's to pre-empt. All three splits measure the same, which is what sourcing them
+  identically bought: mate 4.7 / 4.7 / 4.5%, median `|cp|` 251 / 240 / 238, p99 1,325 / 1,317 /
+  1,316, depth p50 16 in every one.
 - **`target_value` is from the side to move's point of view**, matching the `Evaluator`
   contract in `eval.hpp`. So `MlpEvaluator` returns its output unchanged and `uci.js` keeps
-  doing the single flip to white that the eval bar and `classification.js` expect. A
-  consequence worth knowing: the validation and test labels need **no** flip, because UCI
-  already reports from the side to move. The evaluation-database labels **do** — that dump is
-  White-relative, established from the data rather than the documentation (CW-159). Two
-  independent tests over 200,000 records agree: `pvs[0]` is the maximum of its PV list for
-  100.0% of white-to-move records and 0.0% of black-to-move ones, and the mean cp where White
-  leads by ≥300 material is +1969 with White to move and +852 with Black to move. Getting this
-  backwards would train the model to invert its own evaluation, and nothing downstream would
-  flag it.
-- **The evaluation dump's record shape, so it is not re-derived.** Each line is
+  doing the single flip to white that the eval bar and `classification.js` expect. Since every
+  split is now labeled over UCI, which reports from the side to move, **no label is ever
+  flipped** — `target_from_side_to_move` is the only entry point the pipeline uses. The Lichess
+  evaluation dump is White-relative, established from the data rather than the documentation
+  (CW-159): two independent tests over 200,000 records agree that `pvs[0]` is the maximum of its
+  PV list for 100.0% of white-to-move records and 0.0% of black-to-move ones, and that the mean
+  cp where White leads by ≥300 material is +1969 with White to move and +852 with Black to move.
+  `target_from_white` and its tests stay for that reason — the dump is still the source of the
+  frozen scale, and anything reading it must flip — but nothing in the current pipeline calls
+  it. Getting this backwards would train the model to invert its own evaluation, and nothing
+  downstream would flag it.
+- **The evaluation dump's record shape, kept because the frozen constants came from it.** It is
+  no longer a label source, but `MAX_CP` and `Y` are its measured maxima, so anything revisiting
+  those numbers reads it again — and this is what it looks like. Each line is
   `{"fen", "evals": [{"pvs": [{"cp" | "mate", "line"}], "knodes", "depth"}]}`. `evals` is
   ordered deepest-first — 100.00% of the 1,023,606-row sample — but the label is selected by
   `max(depth)` anyway, because that is correct by construction rather than by an ordering that
@@ -518,13 +527,33 @@ it:
   largest `|mate|` anywhere in the dump is 68 and none is 0; and **every key is unique** —
   0 duplicates in 1,023,606 — so duplicate rejection in the pipeline removes nothing.
 - **Mate becomes `sign * (MAX_CP + MATE_STEP * (Y - |N| + 1))`** for a mate in N, with
-  **`MAX_CP` 20,000, `Y` 68, `MATE_STEP` 10** — so mate in 1 is 20,680, mate in 3 is 20,660,
-  and mate in 68 is 20,010, ten clear of the largest centipawn value. Same conversion for both
-  label sources. The constants are the measured maxima of the 1,023,606-row uniform sample and
-  are **frozen, never recomputed at use**: a regenerated pool with a different `Y` would
-  silently change what every previously written target means. The conversion asserts
-  `|N| <= Y`, so a record from outside the pool the constants came from fails loudly instead
-  of encoding to a value inside the centipawn range, or with an inverted sign.
+  **`MAX_CP` 10,000, `Y` 68, `MATE_STEP` 10** — so mate in 1 is 10,680, mate in 3 is 10,660, and
+  mate in 68 is 10,010, ten clear of the ceiling. `Y` and `MATE_STEP` are measured from the
+  1,023,606-row uniform sample of the evaluation dump and have never moved.
+- **`MAX_CP` was re-frozen once, from 20,000 to 10,000**, in October 2026, after all 600,000
+  positions had been labeled by our own Stockfish and the dump had stopped being a label source.
+  20,000 was Lichess's clamp, describing a source the dataset no longer uses. The measurement
+  that replaced it: max `|cp|` across the complete dataset is **9,165**, and only **three rows in
+  600,000** exceed 4,000 — all three exactly 9,165, in two independently sampled splits with a
+  5,000-point empty gap beneath. An identical extreme in two independent samples is a structural
+  ceiling in Stockfish 19's normalized cp output, not a sample maximum, which is what makes
+  fitting to it defensible rather than overfitting to three rows. 10,000 is that ceiling rounded
+  up: above it so nothing clamps, round enough to read as a decision, and close enough to halve
+  the distance from the median row to the mate band (43× rather than 86×).
+- **It does not move again for this dataset version**, and the reason to say so explicitly is
+  that re-freezing cost 28,137 mate rows a recomputation and all three files a new checksum. A
+  constant re-frozen twice is not frozen. Note what the change did *not* cost: nothing was
+  re-searched, because `target_value` is derived from `raw_cp` and `raw_mate`, which is precisely
+  why those columns exist.
+- **Both entry points guard their input.** `mate_value` raises for `|N| > Y`; `_value` clamps
+  `cp` into ±`MAX_CP`. The asymmetry of a defended entry beside an undefended one is the kind of
+  silent failure CW-160 exists to close: before the clamp, the invariant that every mate target
+  lies strictly outside the centipawn range depended on the engine never exceeding the ceiling,
+  which is a property of Stockfish rather than anything the module enforced. Clamped rather than
+  raising because a value past the ceiling means "winning beyond measure", and flattening it is
+  the right reading, where raising would make the dataset unbuildable over a row whose exact
+  magnitude the training transform discards anyway. `raw_cp` keeps what the engine actually said.
+  It clamps nothing today: measured over all 600,000 labels, zero rows.
 - **This replaced `sign * (30000 - 100 * N)`** once the dump had been inspected. That form put
   mate targets an order of magnitude above ordinary evaluations, and it placed mate in 1 at
   29,900 against `isMateScore`'s 29,936 threshold — 36 centipawns of clearance between a
@@ -536,23 +565,67 @@ it:
   |---|---|
   | Engine search (`search.hpp`) | `MATE_SCORE` 30000, one per **ply**: mated at ply p is `-MATE_SCORE + p` |
   | Facade output (`uci.js`) | clamped to ±10000, so the game server only ever sees a plain number |
-  | Dataset `target_value` | from 20010 to 20680, ten per **move** closer to mate: mate in N is `20000 + 10 * (69 - N)` |
+  | Dataset `target_value` | from 10010 to 10680, ten per **move** closer to mate: mate in N is `10000 + 10 * (69 - N)` |
+
+  The middle two are now numerically adjacent — the facade clamps at ±10000 and the dataset's
+  centipawn ceiling *is* 10000 — which is coincidence, not design. They mean different things: the
+  facade's 10000 is "a mate, distance discarded", the dataset's is "the largest centipawn value",
+  with mates strictly above it.
 
 - **`MlpEvaluator::evaluate` now sits nowhere near the engine's mate band, by construction.**
   `isMateScore` in `search.hpp` treats anything past `MATE_SCORE - MAX_PLY` — 29,936 — as a
   mate, and `search()` breaks out of iterative deepening when it sees one, so a net that
   overshot into that band on a position with no mate in it would make the engine stop
-  deepening early and print `score mate N` with a meaningless N. Under the current target
-  scale the largest value the model is ever trained toward is 20,680, so the clearance is over
-  9,000 rather than the 36 the old encoding left. A clamp at ±25,000 is still worth having,
-  because a regression head is not bounded by the range of its targets — but it is a guard
-  rail now, not the only thing standing between the evaluator and a broken search. Real mates
-  still report correctly: they come from the terminal-position path, never from the evaluator.
-- **The two label sources have different jobs.** Training labels come from the public Lichess
-  evaluation database, which is already analysed to high depth and costs nothing to label.
-  Validation and test come from real Lichess games and are evaluated by us at a fixed 200 ms
-  under one pinned Stockfish configuration. The reason for the split is that **only the games
-  database carries game IDs**, and game IDs are what make the next point possible.
+  deepening early and print `score mate N` with a meaningless N. Under the current target scale
+  the largest value the model is ever trained toward is 10,680, so the clearance is over
+  **19,000** rather than the 36 the old encoding left. A clamp is still worth having, because a
+  regression head is not bounded by the range of its targets — **±15,000** on the current scale,
+  comfortably above the 10,680 the model is trained toward and comfortably below 29,936 — but it
+  is a guard rail, not the only thing standing between the evaluator and a broken search. Real
+  mates still report correctly: they come from the terminal-position path, never the evaluator.
+- **One label source: our own Stockfish, over positions sampled from games.** Training was
+  originally to come from the public Lichess evaluation database, which is analysed to high
+  depth and costs nothing to label. It was switched to games once the held-out splits had been
+  labeled and the two distributions could be compared directly, and the measurement is what
+  decided it: the dump carries **12.4%** mates against **4.6%** in positions sampled from real
+  games, a median `|cp|` of **80** against **239**, and a 99th percentile of **3,587** against
+  **1,317**. Three mismatches in three different directions, on a distribution the model would
+  be evaluated against but never trained on.
+- **What the switch bought, beyond one distribution.** Training positions come from games that
+  `is_accepted()` bars from validation and test, so training is **game-disjoint** from both.
+  That closes a residual the dump made unmeasurable: a dump position can be one ply from a test
+  position — a near-duplicate no key-based blocklist can see — and the dump carries no game IDs
+  with which to exclude it. Validation error also becomes directly comparable to training loss
+  rather than merely correlated with it, and `target_from_white` leaves the pipeline's hot path
+  entirely, taking its single most consequential sign convention with it.
+- **The argument for the dump was label quality, and it loses on model capacity.** Its labels
+  are searched to depth 46-95 against our depth 16, and deeper labels are closer to ground
+  truth. But depth is not the binding constraint here — a 500,000-row MLP will not approach
+  depth-16 Stockfish, let alone depth-50 — while the distribution mismatch affects every
+  number in the report. The cost of switching was nine hours of unattended labeling at 15.4
+  positions/second, plus CW-165's second pass and CW-166 rewritten. The dump work is not
+  wasted: it produced `Y` and `MATE_STEP`, which every target still uses, and `MAX_CP`'s first
+  value, which the complete dataset later replaced.
+- **The pinned configuration *is* the label's scale, so it lives in code and is asserted.**
+  `ml/scripts/engine.py` holds Stockfish 19, its SHA-256, `Threads 1`, `Hash 16`, `MultiPV 1`
+  and `NODE_LIMIT` 110,000, and re-hashes the binary at every engine start — a different build
+  would relabel positions on a different scale with nothing in the rows to show it. The
+  embedded NNUE net is pinned by pinning the binary, which is how "the network is identical for
+  every position" is satisfied by construction.
+- **The budget is a node count, not a time limit, and that is what makes the labels
+  reproducible.** CW-163 specified 200 ms; 200 ms was measured once on an idle core — median
+  111,536 nodes over 286 positions — and frozen at 110,000. A time limit would make every label
+  depend on machine load: this CPU has 4 physical cores behind 8 logical threads, so eight
+  `Threads 1` engines each search roughly half of what one alone manages in 200 ms, and a laptop
+  throttles over an hour at full load. Under a node limit the search is deterministic, so
+  CW-163's "the result does not depend on how many ran at once" and "re-evaluating a sample
+  reproduces the values already recorded" are provable rather than approximate — **200 positions
+  re-evaluated by one engine reproduced `raw_cp`, `raw_mate`, `depth` and `nodes` exactly**,
+  although the labels had been produced by four engines in a different order.
+- **`ucinewgame` runs before every position**, and it is not optional. Without it the
+  transposition table carries over, so a position's score depends on which positions preceded
+  it — the work split would then silently change the labels, and both guarantees above would
+  fail for a reason invisible in the output.
 - **Validation and test are separated by game, not by position.** Consecutive positions in one
   game are nearly identical, so splitting at the position level leaks: the same middlegame
   would sit on both sides of the boundary and the held-out numbers would flatter the model. A
@@ -571,18 +644,21 @@ it:
   two, so 60% of games start with White to move, and since a step of 4 or 6 preserves the side to
   move and only 5 flips it, that bias decays as (1/3)^k instead of vanishing — measured, an 8-12
   window produced 51.1% White in both splits against 49.7% for 8-11. Getting it from the window
-  costs nothing; the alternative is deleting real positions to fix a figure a mover-relative
-  encoding cannot perceive anyway. The cap is a **subset, not a truncation**: ten steps reach ply
+  costs nothing, where the alternative is deleting real positions after the fact — and under v1's
+  absolute encoding the side to move is an input the network does see, so this is worth getting
+  right at source rather than shrugging at. The cap is a **subset, not a truncation**: ten steps reach ply
   ~55 and roughly two-thirds of games run longer, so keeping the first ten would leave both
   splits without an endgame — the measured ply distribution runs p50 35, p90 75, max 217. A
   consequence is that the gaps in the written file are *sums* of 4-6, so verification regenerates
   each game's schedule and checks membership, which doubles as proof that the pass is reproducible
   from game IDs alone. Implemented in `ml/scripts/build_heldout_candidates.py`, checked by
   `measure_candidates.py`.
-- **The accepted cost is that the two sources sit on slightly different scales** — deep
-  pre-computed analysis against our own 200 ms search. CW-168 measures the correlation and mean
-  signed difference once and records it as dataset metadata, so that when validation error stops
-  tracking training error it is possible to tell overfitting from a label mismatch.
+- **There is no longer a scale gap between the splits to account for**, which was the accepted
+  cost of the original two-source design and the reason CW-168 existed. All three splits are
+  labeled by one binary at one node budget, so a divergence between training loss and validation
+  error can only be the model's doing. CW-168 shrinks to a much narrower check — comparing our
+  labels against the dump's on the same positions — which is now curiosity about Stockfish
+  depth rather than a correction the dataset depends on.
 - **Deduplication keys on the three FEN fields the model can perceive** — piece placement, side
   to move, castling rights. Not the en-passant square, and not the halfmove clock or fullmove
   number. The rule is that the key mirrors the model's inputs: two positions the model cannot
@@ -601,10 +677,13 @@ it:
   reporting it. None of that matters once the field is not keyed on — and a four-field FEN from
   the dump and a six-field one from python-chess now key identically with no special case.
   Implemented in `ml/scripts/canonical.py`, pinned by `ml/tests/test_canonical.py`.
-- **Known residual, accepted:** under a mover-relative input encoding, a position and its colour
-  mirror produce the same tensor, and this key does not collapse them. Keying on the encoder's
-  output would — and would also tie the dataset to the model architecture, which is precisely
-  what this section exists to prevent.
+- **Colour mirrors are not collapsed, and under the chosen encoding they should not be.** A
+  position and its colour mirror have different keys, so both can be in the dataset. That was
+  listed as an accepted residual while the input encoding was expected to be mover-relative,
+  where the two would produce the *same* tensor. v1 encodes absolutely instead (CW-229), so they
+  produce different tensors and are genuinely different inputs — the residual was never a
+  problem, and the general rule holds either way: keying on the encoder's output would tie the
+  dataset to the model architecture, which is precisely what this section exists to prevent.
 - **A key that lands in both held-out splits is given to one of them, not deleted from both.** The
   winner is `blake2b(key, person=b"tiebreak") % 2`. Two different games reaching one position is a
   transposition, so the colliding keys are the *commonest* positions in chess, and dropping them
@@ -632,23 +711,29 @@ it:
 - **That blocklist is why the pipeline builds the held-out splits first.** It reads as a strange
   order — the smallest splits before the largest — but training cannot be filtered against
   something that does not exist yet.
-- **Class balance would be corrected by undersampling only** — real Lichess positions removed,
-  never synthesised or duplicated. Mirrored positions are rejected specifically, and not only
-  on principle: mirroring maps a position to one carrying the *same* side-to-move target,
-  because the mover's advantage travels with the mover. It rebalances whose turn it is, not
-  the sign distribution, so it would not fix the thing it appears to fix. What it would
-  genuinely buy — colour symmetry — belongs in the input encoding instead, by presenting the
-  board from the mover's point of view, which makes the symmetry structural and the
-  augmentation an identity function.
-- **In the event, the measured pool needed no rebalancing at all**, and the 500,000 is a
-  uniform draw from it. Side to move came out 51.0 / 49.0, which is a single percentage point
-  and is invisible to a model whose input is encoded from the mover's point of view — deleting
-  21,424 real rows would have corrected something the network cannot perceive. Mate frequency
-  came out 12.4%, not the 18.4% the first 200,000 records suggested, so the contiguous slice
-  was simply unrepresentative and the ratio was never far from where it should be. And the
-  magnitude problem that thinning mates was meant to address is not about mates: a third of
-  the pool is at three pawns or more, so the fix is the target transform, which costs no rows
-  and can be revised without regenerating any.
-- Rejected alternative: drawing validation and test from the evaluation database as well. It
-  removes a Stockfish run and roughly a day of work, but that file has no game IDs, so the splits
-  could only be separated by position — which is the leak described above.
+- **The dataset holds only real positions** — nothing synthesised, duplicated or mirrored — and
+  any rebalancing would have been by removing rows, never adding them. Mirroring in particular
+  does not do what it looks like it does to the *sign* distribution: it maps a position to one
+  carrying the **same** side-to-move target, because the mover's advantage travels with the
+  mover. So it rebalances whose turn it is, not whether targets are positive or negative.
+- **But under absolute encoding, mirroring is real augmentation, and that belongs to the
+  trainer.** Mirror the board, swap piece colours and flip the side-to-move input, and v1's
+  encoding (CW-229) produces a genuinely different tensor carrying an unchanged target — exactly
+  doubling the training data at no cost in labeling. Under a mover-relative encoding the same
+  operation is an identity function and worth nothing, which is the version of this argument the
+  earlier entries here were written against. It stays out of the **dataset** either way: "any
+  training-time transformation belongs to the training script" covers augmentation too, and a
+  mirrored row in the dataset would be a synthetic position masquerading as a sampled one.
+- **In the event, no split needed rebalancing at all**, and the 500,000 is a uniform hash-ranked
+  draw. Side to move came out 49.8 / 50.2 in training against 49.6 / 50.4 and 49.4 / 50.6 in the
+  held-out splits — fractions of a percentage point, so deleting real rows to correct them would
+  trade data for nothing measurable. The ply spreads agree to within a percentage point across all three
+  splits (21.0 / 59.4 / 19.7 for training against 22.1 / 58.8 / 19.1 and 22.2 / 58.6 / 19.3),
+  which is the one-distribution claim showing up as a measurement rather than an intention. And
+  the magnitude problem that thinning mates was meant to address is the target transform's to
+  solve: it costs no rows and can be revised without regenerating any.
+- Rejected alternative: **using the evaluation database for training**, which is what the epic
+  was originally built around. It removes a nine-hour labeling run and supplies labels searched
+  three to five times deeper. Rejected on the measurements above — three distribution mismatches
+  against the set the model is scored on, no game IDs with which to exclude near-duplicates of
+  held-out positions, and a depth advantage the model has nowhere near the capacity to use.

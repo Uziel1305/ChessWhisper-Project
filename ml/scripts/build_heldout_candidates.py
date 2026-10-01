@@ -153,8 +153,14 @@ class CandidateSampler(chess.pgn.BaseVisitor):
     against 300 — which is the difference between three minutes and an hour.
     """
 
-    def __init__(self, wanted, stats):
-        self.wanted = wanted          # wanted(split) -> does it still need games
+    def __init__(self, accept, assign, wanted, stats):
+        # The game rules are passed in rather than hardcoded so the training
+        # sampler reuses this visitor unchanged. Which positions a game yields is
+        # the one thing that must be identical across all three splits, and a
+        # second copy of this logic is the obvious way to lose that.
+        self.accept = accept          # game_id -> may this game be sampled at all
+        self.assign = assign          # game_id -> which output it belongs to
+        self.wanted = wanted          # output name -> does it still need positions
         self.stats = stats
         self.site = None
         self.standard = True
@@ -179,9 +185,9 @@ class CandidateSampler(chess.pgn.BaseVisitor):
         if not self.standard or not self.site:
             return chess.pgn.SKIP
         self.game_id = game_id_of(self.site)
-        if not is_accepted(self.game_id):
+        if not self.accept(self.game_id):
             return chess.pgn.SKIP
-        self.split = split_of(self.game_id)
+        self.split = self.assign(self.game_id)
         if not self.wanted(self.split):
             # This split is already full. Its remaining games cost header speed
             # instead of a full parse, so the tail of the pass runs fast.
@@ -241,7 +247,8 @@ def main():
 
         while any(wanted(s) for s in SPLITS):
             outcome = chess.pgn.read_game(
-                text, Visitor=lambda: CandidateSampler(wanted, stats))
+                text, Visitor=lambda: CandidateSampler(
+                    is_accepted, split_of, wanted, stats))
             if outcome is None:
                 finished_month = True
                 break
