@@ -1,7 +1,14 @@
-# Dataset notes — CW-159
+# Dataset notes — epic CW-158
 
-How the two Lichess dumps were obtained, what is in them, and the constants frozen from
-them. `eval_sample_report.txt` beside this file holds the raw measurement output.
+How the dataset was built, split, labeled and verified. Each section carries the measurements
+its decisions were made on; the `*_report.txt` files beside this one hold the raw output.
+
+**One thing to know before reading the early sections.** The training labels were originally to
+come from the Lichess evaluation database, and CW-159 to CW-160 are written from inside that
+plan. They were switched to positions sampled from games and labeled by our own Stockfish, once
+the held-out splits existed and the two distributions could be compared — see *The training set*
+below for the measurements that decided it. The evaluation dump is no longer a label source, but
+it is still where the frozen target scale came from, so those sections stay as written.
 
 ---
 
@@ -126,7 +133,7 @@ only the ~1M kept lines are ever decoded. Building 409 million Python dicts to d
 ## Frozen constants
 
 ```
-MAX_CP    = 20000     # max |cp| — Lichess's own clamp, exactly symmetric
+MAX_CP    = 10000     # ceiling for |cp|; the mate band begins above it
 Y         = 68        # max |mate| across the whole dump
 MATE_STEP = 10
 ```
@@ -135,15 +142,42 @@ MATE_STEP = 10
 mate_value(N) = sign(N) * (MAX_CP + MATE_STEP * (Y - abs(N) + 1))
 ```
 
-Mate in 1 → 20,680. Mate in 68 → 20,010, ten clear of the largest centipawn value. Strictly
-ordered by distance to mate, every value strictly outside the centipawn range.
+Mate in 1 → 10,680. Mate in 68 → 10,010, ten clear of the ceiling. Strictly ordered by distance
+to mate, every value strictly outside the centipawn range.
 
-These are **frozen and never recomputed at use.** A regenerated pool with a different `Y` would
-silently change what every previously written target means. The conversion asserts
-`|N| <= Y` and fails loudly, because a record from outside the pool the constants came from
-would otherwise encode to a value inside the centipawn range, or with an inverted sign.
+`Y` and `MATE_STEP` come from the 1,023,606-row dump sample and have never moved. No record has
+`|mate| == 0` or `|mate| >= 100`, so neither edge case arises, and the conversion asserts
+`|N| <= Y` so a record from outside that range fails loudly rather than encoding to a value
+inside the centipawn range or with an inverted sign.
 
-No record has `|mate| == 0` or `|mate| >= 100`, so neither edge case arises.
+### MAX_CP was re-frozen once, 20,000 → 10,000
+
+In October 2026, after all 600,000 positions had been labeled by our own Stockfish and the
+evaluation dump had stopped being a label source. 20,000 was *Lichess's* clamp — it described a
+source the dataset no longer uses.
+
+What replaced it, measured across the complete dataset:
+
+| | |
+|---|---|
+| max `\|raw_cp\|` | **9,165** — train 9,165, val 9,165, test 2,863 |
+| rows above 4,000 `\|cp\|` | **3 of 600,000**, all three exactly 9,165 (2 train, 1 val) |
+| max `\|raw_mate\|` | 19 — against a frozen `Y` of 68 |
+
+The three extremes being *identical*, in two independently sampled splits, with a 5,000-point
+empty gap beneath them, is the signature of a **structural ceiling in Stockfish 19's normalized
+cp output** rather than a sample maximum. That is what makes fitting the scale to it defensible
+instead of overfitting to three rows. 10,000 is that ceiling rounded up: above it so nothing is
+ever clamped, round enough to read as a decision rather than a reading, and close enough to halve
+the distance from the median row to the mate band — 43× instead of 86×.
+
+**Cost of the change:** 28,137 mate rows recomputed (2,347 val, 2,258 test, 23,532 train), all
+three files rewritten with new checksums. **Nothing was re-searched** — `target_value` is derived
+from `raw_cp` and `raw_mate`, which is exactly why those columns exist. The merge asserts that the
+rows which moved are precisely the mate rows: a centipawn row among them would mean the new
+ceiling was eating real data rather than guarding against it.
+
+**It does not move again for this dataset version.** A constant re-frozen twice is not frozen.
 
 ---
 
@@ -158,11 +192,14 @@ No record has `|mate| == 0` or `|mate| >= 100`, so neither edge case arises.
 | `\|cp\|` percentiles | p50 80, p75 308, p90 562, p99 3,587, max 20,000 |
 | magnitude buckets | <0.5 pawns 35.4% · 0.5–1.5 18.7% · 1.5–3 11.1% · 3–6 15.1% · >6 7.3% · mate 12.4% |
 
-**No rebalancing was applied.** The 500,000 training set is a uniform draw from this pool.
+**No rebalancing was applied** — and in the end nothing was drawn from this pool at all. The
+500,000 training set comes from games (see *The training set* below); these figures remain as the
+measurement the frozen scale was taken from, and as the evidence that decided the switch.
 
-- **Side to move.** 51.0/49.0 is one percentage point, and it is invisible to a model whose
-  input is encoded from the mover's point of view. Deleting 21,424 real rows would correct
-  something the network cannot perceive.
+- **Side to move.** 51.0/49.0 is one percentage point. Deleting 21,424 real rows to close it
+  would trade data for an effect too small to measure — and the games-sourced splits that
+  replaced this pool came out at 49.8/50.2 and 49.6/50.4 anyway, balanced at source by the width
+  of the opening window rather than by deletion.
 - **Mate frequency.** 12.4%, not the 18.4% the dump's first 200,000 records suggested. That
   contiguous slice was unrepresentative in other ways too — it showed 53% single-eval records
   against a true 91.6% — which is the whole argument for measuring on a uniform sample.
@@ -172,10 +209,17 @@ No record has `|mate| == 0` or `|mate| >= 100`, so neither edge case arises.
   script is what addresses it, and it costs no rows.
 
 Any correction, had one been warranted, would have been **undersampling only** — real positions
-removed, nothing synthesised, duplicated or mirrored. Mirroring specifically does not help: it
-maps a position to one carrying the *same* side-to-move target, because the mover's advantage
-travels with the mover, so it rebalances whose turn it is rather than the sign distribution.
-Colour symmetry, which is what it looks like it buys, belongs in the input encoding.
+removed, nothing synthesised, duplicated or mirrored. Mirroring specifically does not rebalance
+the *sign* distribution: it maps a position to one carrying the **same** side-to-move target,
+because the mover's advantage travels with the mover, so it changes whose turn it is and nothing
+else.
+
+That is an argument about what mirroring fixes, not about whether it is useful. Under v1's
+**absolute** input encoding (CW-229), mirroring the board, swapping piece colours and flipping
+the side-to-move input produces a genuinely different tensor with an unchanged target — real
+augmentation that doubles the training data for free. It stays out of the dataset regardless: a
+mirrored row here would be a synthetic position presented as a sampled one, and augmentation
+belongs to the training script, like every other training-time transformation.
 
 ---
 
@@ -225,8 +269,10 @@ even and two odd) 60% of games start with White to move, and because a step of 4
 the side to move while only 5 flips it, that bias decays as (1/3)^k rather than vanishing: the
 first build came out **51.1% White in both splits**, and four wide it is 49.7/50.3. The residual
 0.3 points now leans the other way and comes from the game-length distribution, not the window.
-This is the cheap way to get the balance — the alternative, deleting real positions afterwards,
-corrects something a mover-relative input encoding cannot perceive in the first place.
+This is the cheap way to get the balance, and worth having rather than shrugging at: v1 encodes
+positions absolutely and carries the side to move as its own input (CW-229), so it is a feature
+the network actually sees. The alternative — deleting real rows afterwards — costs data to fix
+something the sampling window fixes for nothing.
 
 **The cap keeps a uniform subset, not the first ten.** Ten steps at 4–6 plies reach ply ~55,
 and 6,596 of val's 10,423 games are long enough to hit the cap, so truncating would have ended
@@ -293,6 +339,170 @@ looks at the ply, so there is no mechanism by which it could be.
 
 ---
 
+## Labeling — CW-163 (held-out) and CW-276 (training)
+
+All three splits are labeled by one binary at one budget. That identity is the dataset's central
+guarantee: a gap between training loss and validation error can then only be the model's doing.
+
+| | |
+|---|---|
+| engine | Stockfish 19, `sha256 45bc8e4969147db9c2eb533810637994619bff0eacc81ccfd9854394901bcbd0` |
+| network | `nn-1a298aa575a0.nnue`, embedded — pinned by pinning the binary |
+| options | `Threads 1`, `Hash 16`, `MultiPV 1`, all set explicitly |
+| budget | `go nodes 110000` |
+| held-out run | 100,000 positions, 4 workers, 15.4 positions/s, ~1.8 h |
+
+**The budget is a node count, not the 200 ms CW-163 specified.** 200 ms was measured once, in one
+process on an idle machine: the median held-out position searched 111,536 nodes (p10 61,477, p90
+154,859 over 286 positions), frozen at 110,000. A time limit cannot satisfy CW-163's own bullets.
+This CPU has 4 physical cores behind 8 logical threads, so eight `Threads 1` engines each search
+roughly half of what one alone manages in 200 ms, and a laptop throttles over an hour at load —
+so "the result does not depend on how many ran at once" would be false, and "re-evaluating
+reproduces the values already recorded" would need a tolerance. Under a node limit both are
+exact. Frozen for the same reason the scale is: a faster machine recalibrating would relabel the
+dataset on a deeper scale with nothing in the rows to show it.
+
+**`ucinewgame` before every position.** Otherwise the transposition table carries over, a
+position's score depends on which positions preceded it, and the work split silently changes the
+labels.
+
+**The node limit is an upper bound, not a target.** A solved position stops at Stockfish's ply
+ceiling after a few thousand nodes — so `depth 245` in a row means *solved*, not *searched
+deeply*, and the reported `depth` percentiles below exclude mate rows for that reason.
+
+**Reproduction, CW-163's last bullet, is exact.** 200 positions chosen by hash, re-evaluated by
+**one** engine, reproduced `raw_cp`, `raw_mate`, `depth` and `nodes` for all 200 — although the
+labels came from **four** engines walking the positions in a different order. That is the
+strongest available evidence that the `ucinewgame` isolation works and the worker count cannot
+affect a label. `heldout_reproduction_report.txt`.
+
+### The labeled splits
+
+`train_labeled.jsonl.zst` (500,000 rows, 15.2 MB), `val_labeled.jsonl.zst` and
+`test_labeled.jsonl.zst` (50,000 each, 1.6 MB each). Nine fields per row: `fen`, `split`,
+`source_game_id`, `ply`, `target_value`, `raw_cp`, `raw_mate`, `depth`, `nodes`. Written in
+`(game_id, ply)` order — the logs are produced in worker-completion order, which would differ on
+a rerun, and a checksum over an unreproducible order says nothing.
+
+| | train | val | test |
+|---|---|---|---|
+| rows | 500,000 | 50,000 | 50,000 |
+| sha256 | `6c1b3f4bf7ba326a2a21d12372f0200f6940835fcdbcdd05aedbe59cba86a773` | `d1c9ca0e85f8a23f8ef6c392e742725a81373fb8773a60841f41b30de6617e1c` | `f154193e73eb4291830fcc895fb40916e223c7006849677f9b24b07ad36cba6a` |
+| score kind | cp 95.3% / mate 4.7% | cp 95.3% / mate 4.7% | cp 95.5% / mate 4.5% |
+| `\|cp\|` | p50 251, p90 847, p99 1,325, max 9,165 | p50 240, p90 842, p99 1,317, max 9,165 | p50 238, p90 848, p99 1,316, max 2,863 |
+| max `\|mate\|` | 19 | 18 | 17 |
+| depth on cp rows | p10 14, p50 16, p90 18 | same | same |
+| rows the cp clamp touched | 0 | 0 | 0 |
+| mate rows moved by the re-freeze | 23,532 | 2,347 | 2,258 |
+
+**Those three columns are the dataset's central claim, measured.** Sourcing all three splits the
+same way and labeling them with one binary at one budget was supposed to put them on one
+distribution; mate fractions of 4.7 / 4.7 / 4.5%, medians of 251 / 240 / 238, p99s of 1,325 /
+1,317 / 1,316 and an identical median depth of 16 are what that looks like from outside. Nothing
+here was tuned to make those agree.
+
+No perspective flip is applied anywhere: `target_value == raw_cp` on every cp row, because UCI
+reports from the side to move and so does the `Evaluator` contract. `target_from_side_to_move` is
+the only conversion entry point the pipeline uses.
+
+---
+
+## The blocklist — CW-164
+
+`ml/data/blocklist.txt` — 100,000 keys, one per line, sorted.
+`sha256 e628984eb67e9c5d3abff1cabba3d879c6e55b9f799151ecea64f9998ba49a12`.
+
+The union of the validation and test keys, and nothing else: a candidate that was sampled in
+CW-161 but not selected in CW-162 belongs to no held-out split, so training may contain it. The
+union being exactly 100,000 is also the proof that the two splits do not overlap.
+
+Keys rather than FENs, because the key is what decides whether the model can tell two positions
+apart — blocking a FEN would let the same position through under a different halfmove clock.
+Sorted on write, so the file and its checksum depend only on which positions are held out.
+
+`blocklist.load()` is the training pipeline's only door to it, and no training code path opens
+the test set itself. That is CW-164's third requirement made structural rather than a matter of
+discipline.
+
+**The test set is reserved for final evaluation.** It is not used for architecture selection,
+feature selection, learning-rate tuning, epoch selection, regularisation, preprocessing
+decisions, or choosing between model versions. Validation carries all of those.
+
+---
+
+## The training set — from games, not the dump
+
+Training was switched from the Lichess evaluation database to positions sampled from games and
+labeled by the same Stockfish, once the held-out splits existed and the two distributions could
+be compared side by side. The comparison is what decided it:
+
+| | evaluation dump | our labels |
+|---|---|---|
+| mate fraction | 12.4% | 4.6% |
+| median `\|cp\|` | 80 | 239 |
+| p99 `\|cp\|` | 3,587 | 1,317 |
+| search depth | 46–95 | 16 |
+
+Three mismatches in three different directions, on a distribution the model would be scored
+against but never trained on. Against that, the dump's one real advantage is depth — and depth is
+not the binding constraint at this model's capacity, since a 500,000-row MLP will not approach
+depth-16 Stockfish, let alone depth-50.
+
+**It also closes a leak that could not otherwise be measured.** Training games are now disjoint
+from the held-out games, so a training position can never be a *near*-duplicate — one ply away,
+same game — of a held-out position. The dump made that impossible to check at all, because it
+carries no game IDs. Game-level disjointness does not stop transpositions, which is what the
+blocklist is for; both mechanisms are needed and both now exist.
+
+### Candidates
+
+`train_candidates.jsonl.zst` — 600,004 records, 12.4 MB, built in 4.7 minutes by
+`build_train_candidates.py`.
+
+| | |
+|---|---|
+| games traversed | 1,160,997 of 1,785,417 (65% of the month) |
+| game accepted when | `not is_accepted(id)` **and** `blake2b(id, person=b"train") % 16 == 0` |
+| yield | 8.67 per game from 69,189 games |
+| games shared with the held-out candidates | **0** |
+
+**Disjointness is structural, not a lookup.** `is_accepted()` decides whether a game may feed
+validation or test *at all*, so training takes only games where it is false — no list to load and
+nothing to keep in sync. Keying on the rule rather than on the 20,801 games actually used matters:
+the held-out pass stopped at 78% of the month with both splits full, so ~7,000 eligible games went
+unused, and a later re-run of CW-161 with a bigger target must not start pulling games that are
+already in training. The 0 above is the check anyway, because a rule that prevents overlap is not
+evidence that none occurred.
+
+**The sampling rule is CW-161's, reused rather than restated** — same ply schedule, same 4–6
+spacing, same cap, the same `CandidateSampler` with its game rules passed in. The yield of 8.67
+against the held-out splits' 8.64 and 8.67 is what that identity looks like from outside.
+
+### Selection
+
+`train_positions.jsonl.zst` — exactly 500,000 positions, 10.6 MB.
+`sha256 2e4956478951b3935d9ce49f4031b7bd88a2df93ae3ffa9070d5389982324b71`.
+
+| | |
+|---|---|
+| candidates | 600,004 |
+| after deduplication | 587,055 (−12,949 duplicate keys) |
+| after the blocklist | 584,884 (−2,171 held-out keys) |
+| selected | 500,000 from 68,919 games |
+| ply spread | < 20 21.0%, 20–60 59.4%, > 60 19.7% |
+| side to move | 49.8% White |
+| ply percentiles | p25 22, p50 36, p75 55, p90 75, max 255 |
+
+**The 2,171 blocklist hits are the ones that matter.** Each is a position reached by a training
+game *and* by a held-out game, and every one would have put a validation or test position into
+training. Game disjointness would not have caught a single one.
+
+The ply spread and side-to-move balance match the held-out splits to within a percentage point
+(22.1 / 58.8 / 19.1 and 22.2 / 58.6 / 19.3; 49.6% and 49.4% White). That is the one-distribution
+claim as a measurement rather than an intention.
+
+---
+
 ## Scripts
 
 | | |
@@ -306,3 +516,11 @@ looks at the ply, so there is no mechanism by which it could be.
 | `build_heldout_candidates.py` | the one pass over the games dump that produced both candidate files |
 | `measure_candidates.py` | CW-161's acceptance checks; writes `heldout_candidates_report.txt` |
 | `select_heldout.py` | CW-162 — deduplicates, resolves the cross-split collisions, cuts to 50,000 each; writes `heldout_splits_report.txt` |
+| `engine.py` | the pinned Stockfish and its UCI client; holds the SHA-256, the options and `NODE_LIMIT`, and asserts the binary at every start |
+| `calibrate_nodes.py` | the one-off measurement that turned CW-163's 200 ms into a node count |
+| `label_heldout.py` | labels every split — val, test and train — resumable, one engine per worker |
+| `merge_labels.py` | orders, compresses and verifies the labeled splits; writes `heldout_labels_report.txt` |
+| `verify_labels.py` | re-evaluates 200 positions and demands identical values; writes `heldout_reproduction_report.txt` |
+| `blocklist.py` | CW-164 — builds the 100,000-key blocklist and is the training pipeline's only door to it |
+| `build_train_candidates.py` | samples 600,000 training candidates from games barred from val/test |
+| `select_train.py` | deduplicates, rejects blocklisted keys, cuts to 500,000; writes `train_split_report.txt` |

@@ -1,0 +1,8 @@
+CW-163 — REPRODUCTION CHECK
+Stockfish 19   go nodes 110,000   Threads 1   Hash 16 MB   MultiPV 1
+100 positions per split, chosen by hash of the FEN
+
+val: 100/100 reproduced exactly
+test: 100/100 reproduced exactly
+
+[PASS] 200/200 positions reproduced every compared field exactly
