@@ -23,7 +23,7 @@ const pool = require('../src/pool');
 const FAKE_CP = 77; // matches test-support/fake-engine.js's fixed score
 // What pool.evaluate resolves for an ordinary (non-mate) answer. At this level
 // mateIn is always present, as null — it's the HTTP layer that omits it.
-const FAKE_RESULT = { cp: FAKE_CP, mateIn: null };
+const FAKE_RESULT = { cp: FAKE_CP, mateIn: null, bestMove: 'e2e4' };
 
 // A live worker's open stdio keeps node --test from ever exiting on its own —
 // nothing tears the process down for us the way a container teardown would
@@ -105,6 +105,31 @@ test('an unexpected exit is handled the same way as a timeout', async () => {
 // Black mating when Black is — through the persistent worker, not just in
 // uci.test.js's isolated parser.
 test('a mate answer carries its distance, signed from White\'s perspective', async () => {
-    assert.deepEqual(await pool.evaluate('FAKE-mate3 w - - 0 1', 200), { cp: 10000, mateIn: 3 });
-    assert.deepEqual(await pool.evaluate('FAKE-mate3 b - - 0 1', 200), { cp: -10000, mateIn: -3 });
+    assert.deepEqual(await pool.evaluate('FAKE-mate3 w - - 0 1', 200), { cp: 10000, mateIn: 3, bestMove: 'e2e4' });
+    assert.deepEqual(await pool.evaluate('FAKE-mate3 b - - 0 1', 200), { cp: -10000, mateIn: -3, bestMove: 'e2e4' });
 });
+
+test('a position with no legal move reports bestMove as null', async () => {
+    assert.deepEqual(await pool.evaluate('FAKE-nomove w - - 0 1', 200), { cp: FAKE_CP, mateIn: null, bestMove: null });
+});
+
+// The fixture prints `info ... score cp 999` and `bestmove a2a3` ~50ms after
+// its real answer, and holds its stdin until then, as a real engine would.
+// Without the isready/readyok drain the next request is dispatched straight
+// into that trailing output and resolves with 999 — which is how this test
+// was confirmed to cover the drain rather than pass regardless of it.
+test('output trailing a finished search never lands on the next request', async () => {
+    assert.deepEqual(await pool.evaluate('FAKE-trailing w - - 0 1', 200), FAKE_RESULT);
+    assert.deepEqual(await pool.evaluate('FAKE-fast w - - 0 1', 200), FAKE_RESULT);
+});
+
+test('a worker that never answers the drain is replaced, failing nobody', async () => {
+    const pidBefore = pool._workerPids()[0];
+
+    // The search itself succeeded, so its caller is answered — the drain
+    // happens after, and its failure belongs to no request.
+    assert.deepEqual(await pool.evaluate('FAKE-nodrain w - - 0 1', 200), FAKE_RESULT);
+    assert.deepEqual(await pool.evaluate('FAKE-fast w - - 0 1', 200), FAKE_RESULT);
+
+    assert.notEqual(pool._workerPids()[0], pidBefore, 'the undrainable worker was killed and replaced');
+}, { timeout: 5000 });

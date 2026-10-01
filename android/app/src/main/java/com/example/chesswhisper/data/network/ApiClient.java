@@ -27,6 +27,8 @@ public final class ApiClient {
     private static volatile UserApi userApi;
     private static volatile GameApi gameApi;
     private static volatile OkHttpClient httpClient;
+    // Serialises the authenticator's refresh so only one /refresh is ever in flight.
+    private static final Object REFRESH_LOCK = new Object();
 
     // Private constructor — this is a static holder, never instantiated.
     private ApiClient(){}
@@ -150,33 +152,52 @@ public final class ApiClient {
                         // still got a 401 — refreshing again would loop forever.
                         return null;
                     }
-                    String refreshToken = SessionManager.getInstance().getRefreshToken();
-                    if (refreshToken == null) {
-                        return null;
-                    }
-                    try {
-                        retrofit2.Response<RefreshResponse> refreshed = getAuthApi()
-                                .refresh(new RefreshTokenRequest(refreshToken))
-                                // Authenticator runs on OkHttp's own thread and must
-                                // block — enqueue() would return before this could
-                                // use the result.
-                                .execute();
-                        if (!refreshed.isSuccessful() || refreshed.body() == null) {
-                            // Refresh token invalid/expired/reused — the session is
-                            // dead, so there is nothing left worth keeping locally.
-                            SessionManager.getInstance().clearSession();
+                    // Single-flight: parallel requests that 401 together (Home's
+                    // /users/me + /games/history) each land here on their own
+                    // thread. Without the lock both present the same refresh
+                    // token; the server rotates it for the first, sees the second
+                    // as a replay, and revokes every token for the user — a forced
+                    // logout. Blocking is fine: .execute() below blocks anyway.
+                    synchronized (REFRESH_LOCK) {
+                        String refreshToken = SessionManager.getInstance().getRefreshToken();
+                        if (refreshToken == null) {
+                            // Another thread's refresh failed and cleared the session.
                             return null;
                         }
-                        RefreshResponse body = refreshed.body();
-                        SessionManager.getInstance().saveSession(
-                                body.getAccessToken(), body.getRefreshToken(), SessionManager.getInstance().getUserId());
-                        return response.request().newBuilder()
-                                .header("Authorization", "Bearer " + body.getAccessToken())
-                                .build();
-                    } catch (IOException e) {
-                        // Refresh call itself couldn't reach the server — give up on
-                        // this request rather than retrying indefinitely.
-                        return null;
+                        // If the stored token is no longer the one this request
+                        // carried, another thread refreshed while we waited for the
+                        // lock — retry with its token instead of refreshing again.
+                        String storedAccess = SessionManager.getInstance().getAccessToken();
+                        String failedHeader = response.request().header("Authorization");
+                        if (storedAccess != null && !("Bearer " + storedAccess).equals(failedHeader)) {
+                            return response.request().newBuilder()
+                                    .header("Authorization", "Bearer " + storedAccess)
+                                    .build();
+                        }
+                        try {
+                            retrofit2.Response<RefreshResponse> refreshed = getAuthApi()
+                                    .refresh(new RefreshTokenRequest(refreshToken))
+                                    // Authenticator runs on OkHttp's own thread and must
+                                    // block — enqueue() would return before this could
+                                    // use the result.
+                                    .execute();
+                            if (!refreshed.isSuccessful() || refreshed.body() == null) {
+                                // Refresh token invalid/expired/reused — the session is
+                                // dead, so there is nothing left worth keeping locally.
+                                SessionManager.getInstance().clearSession();
+                                return null;
+                            }
+                            RefreshResponse body = refreshed.body();
+                            SessionManager.getInstance().saveSession(
+                                    body.getAccessToken(), body.getRefreshToken(), SessionManager.getInstance().getUserId());
+                            return response.request().newBuilder()
+                                    .header("Authorization", "Bearer " + body.getAccessToken())
+                                    .build();
+                        } catch (IOException e) {
+                            // Refresh call itself couldn't reach the server — give up on
+                            // this request rather than retrying indefinitely.
+                            return null;
+                        }
                     }
                 })
                 .build();

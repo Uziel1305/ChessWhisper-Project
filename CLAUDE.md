@@ -61,6 +61,12 @@ token (30 days) used only to silently obtain a new access token from
 - `POST /api/auth/logout` revokes only the current device's refresh token, not every
   session — logout-everywhere is a trivial follow-on (`revokeAllForUser`) if ever
   needed, not built now.
+- **The client must single-flight refresh.** Rotation plus reuse detection turns parallel
+  401s into a forced logout: two requests that expire together (Home fires `/users/me` and
+  `/games/history` at once) each call `/refresh` with the same token, the second is seen as
+  a replay, and every token for the user is revoked. `ApiClient`'s authenticator therefore
+  refreshes under one lock, and a thread that finds the stored access token already changed
+  retries with it instead of refreshing again.
 - Android never validates or decodes either token: it stores both
   (EncryptedSharedPreferences), sends the access token on API calls, and calls
   `/api/auth/refresh` on a 401 — consistent with the app carrying zero business logic.
@@ -205,6 +211,10 @@ The ≥100-concurrent-games target is an engine-pool question:
   validation is microseconds, per-game state is a few KB, and 100 games is 200 sockets.
 - The engine is: a 200 ms budget with one worker per core gives ~5 evaluations/sec/core, and
   100 concurrent 10-minute games need ~13/sec. Four cores fits with headroom; two does not.
+- The facade's pool (`engine/facade/src/pool.js`) therefore defaults to one worker per core
+  (`os.availableParallelism()`); `ENGINE_WORKER_COUNT` overrides it. After every `bestmove`
+  a worker is drained with `isready`/`readyok` before it takes another request, so output
+  trailing one search can never be read as the next one's answer.
 - Therefore **one evaluation per committed half-move, never continuous** — and that single
   evaluation serves both the bar and the classification. Evaluating twice halves capacity.
 - `clock.js` computes remaining time from timestamps with one `setTimeout` per game for the
@@ -412,7 +422,8 @@ No extra engine call.
   or the board's orientation — flipping changes only where Android draws it.
 - **Present only when the engine reports a forced mate ahead; otherwise the key is absent,
   not `null`.** An ordinary `eval.update` is still exactly `{type, ply, evalCp}`, and the
-  facade's HTTP body is still exactly `{cp}` — `{cp, mateIn}` only for a mate. Inside the
+  facade's HTTP body is `{cp, bestMove}` — `mateIn` added only for a mate, `bestMove`
+  absent only when the position has no legal move (CW-81). Inside the
   server, `engineClient.evaluate()` always resolves `{cp, mateIn}` with `null` for
   "none", so callers see one shape.
 - **`mate 0` — the position is already checkmate — is absent too.** There is no mate

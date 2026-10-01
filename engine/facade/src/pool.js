@@ -1,3 +1,4 @@
+const os = require('os');
 const readline = require('readline');
 const { spawnEngine, whiteToMoveFrom, parseScoreLine } = require('./uci');
 
@@ -8,22 +9,21 @@ const { spawnEngine, whiteToMoveFrom, parseScoreLine } = require('./uci');
 // investigation this file's rewrite came out of). This file keeps a small
 // number of engine processes alive across many requests instead.
 //
-//   evaluate(fen, budgetMs)  ->  Promise<{ cp, mateIn }>
+//   evaluate(fen, budgetMs)  ->  Promise<{ cp, mateIn, bestMove }>
 //
-// mateIn is null unless the engine reported a mate (see uci.js).
+// mateIn is null unless the engine reported a mate (see uci.js). bestMove is
+// the UCI move from the engine's `bestmove` line, or null when the position
+// has no legal move (`0000` from our engine, `(none)` from Stockfish).
 //
 // Same signature and same error shape (a plain Error, or one with
 // `.timedOut = true`) as uci.js's old evaluate() — index.js's status-code
 // mapping (504 vs 500) depends on that property and needs no other change.
 
-// How many engine processes to keep warm. One is enough to remove the cost
-// this file replaces (spawn-per-request); CLAUDE.md's "one worker per core"
-// figure is the eventual target for the real custom engine at production
-// scale, not this Stockfish stand-in — scaling up is a later, separate,
-// evidence-driven step, not a rewrite (this pool is already written for any
-// N). Never a literal: reads from the same kind of compose `environment:`
-// entry ENGINE_BINARY_PATH/ENGINE_PORT already use.
-const WORKER_COUNT = Number(process.env.ENGINE_WORKER_COUNT) || 1;
+// How many engine processes to keep warm: one per core by default (CW-112),
+// since a search is single-threaded and CPU-bound — more workers than cores
+// only time-slice the same budget. ENGINE_WORKER_COUNT overrides it, the same
+// kind of compose `environment:` entry ENGINE_BINARY_PATH/ENGINE_PORT use.
+const WORKER_COUNT = Number(process.env.ENGINE_WORKER_COUNT) || os.availableParallelism();
 
 // The facade's own hard deadline for one evaluation. Unchanged from uci.js's
 // old per-call timeout margin, deliberately: this rewrite is judged on
@@ -47,6 +47,7 @@ function handleWorkerDeath(worker, err) {
     if (worker.dying) return;
     worker.dying = true;
 
+    clearTimeout(worker.drainTimer);
     const req = worker.current;
     worker.current = null;
     if (req) {
@@ -80,6 +81,18 @@ function attachLineHandler(worker) {
             return;
         }
 
+        // Everything before readyok is output left over from the search that
+        // just finished — it belongs to nobody, and least of all to the next
+        // request, which is exactly what it would land on without the drain.
+        if (worker.phase === 'draining') {
+            if (line === 'readyok') {
+                clearTimeout(worker.drainTimer);
+                worker.phase = 'ready';
+                tryDispatch();
+            }
+            return;
+        }
+
         // phase === 'ready'. No current request means this line belongs to
         // nothing (shouldn't happen — 'bestmove' always clears `current` —
         // but a stray line here must never crash the facade).
@@ -95,23 +108,34 @@ function attachLineHandler(worker) {
             }
         } else if (line.startsWith('bestmove')) {
             const { score, mateIn } = worker.current;
+            const move = line.split(' ')[1];
+            const bestMove = !move || move === '0000' || move === '(none)' ? null : move;
             finishCurrent(worker,
                 score === null ? new Error('engine reported no score') : null,
-                { cp: score, mateIn });
+                { cp: score, mateIn, bestMove });
         }
     });
 }
 
 // The normal, successful (or cleanly-answered-but-scoreless) completion path
-// — as opposed to handleWorkerDeath, this leaves the worker alive and
-// immediately reusable, since nothing here means the *process* is broken.
+// — as opposed to handleWorkerDeath, this leaves the worker alive, since
+// nothing here means the *process* is broken. The caller is answered at once;
+// the worker itself is only reusable after the drain (CW-113): `isready` is
+// queued behind anything the engine still has to print, so its `readyok`
+// proves the pipe holds nothing more from this search. An engine that never
+// answers is killed and replaced — with no request of its own to fail.
 function finishCurrent(worker, err, value) {
     const req = worker.current;
     if (!req) return;
     clearTimeout(req.timer);
     worker.current = null;
     if (err) req.reject(err); else req.resolve(value);
-    tryDispatch();
+
+    worker.phase = 'draining';
+    worker.drainTimer = setTimeout(() => {
+        handleWorkerDeath(worker, new Error('engine did not answer isready'));
+    }, TIMEOUT_MARGIN_MS);
+    worker.child.stdin.write('isready\n');
 }
 
 // Spawns one worker and begins its handshake. Returns immediately — nothing
@@ -123,8 +147,9 @@ function createWorker(slot) {
         slot,
         child,
         rl: readline.createInterface({ input: child.stdout }),
-        phase: 'handshake', // 'handshake' | 'ready'
+        phase: 'handshake', // 'handshake' | 'ready' | 'draining'
         dying: false,
+        drainTimer: null,
         current: null,      // { resolve, reject, timer, score, mateIn, whiteToMove }
     };
 
@@ -164,7 +189,8 @@ function dispatchToWorker(worker, request) {
 
 // Assigns as much of the queue as there are idle, ready workers for. Called
 // from every place a worker could newly become available (a request arrives,
-// a worker finishes one, a fresh replacement's handshake completes) — there
+// a worker's post-search drain completes, a fresh replacement's handshake
+// completes) — there
 // is deliberately only this one dispatch path, not one per call site.
 function tryDispatch() {
     while (queue.length > 0) {
@@ -201,6 +227,7 @@ function _workerPids() {
 function _shutdown() {
     for (const worker of workers) {
         worker.dying = true; // skip the 'exit' handler's respawn
+        clearTimeout(worker.drainTimer);
         try { worker.rl.close(); } catch (e) { /* already closed */ }
         try { worker.child.kill(); } catch (e) { /* already gone */ }
     }
