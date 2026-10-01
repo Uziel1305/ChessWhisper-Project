@@ -61,6 +61,12 @@ token (30 days) used only to silently obtain a new access token from
 - `POST /api/auth/logout` revokes only the current device's refresh token, not every
   session — logout-everywhere is a trivial follow-on (`revokeAllForUser`) if ever
   needed, not built now.
+- **The client must single-flight refresh.** Rotation plus reuse detection turns parallel
+  401s into a forced logout: two requests that expire together (Home fires `/users/me` and
+  `/games/history` at once) each call `/refresh` with the same token, the second is seen as
+  a replay, and every token for the user is revoked. `ApiClient`'s authenticator therefore
+  refreshes under one lock, and a thread that finds the stored access token already changed
+  retries with it instead of refreshing again.
 - Android never validates or decodes either token: it stores both
   (EncryptedSharedPreferences), sends the access token on API calls, and calls
   `/api/auth/refresh` on a 401 — consistent with the app carrying zero business logic.
