@@ -606,13 +606,14 @@ it:
 - **This replaced `sign * (30000 - 100 * N)`** once the dump had been inspected. That form put
   mate targets an order of magnitude above ordinary evaluations, and it placed mate in 1 at
   29,900 against `isMateScore`'s 29,936 threshold — 36 centipawns of clearance between a
-  training target and the engine's own proven-mate band.
+  training target and the engine's own proven-mate band. (Those figures are from when
+  `MATE_SCORE` was 30000; it was raised to 40000 in September 2026.)
 - **This puts three different mate encodings in the project.** They serve different jobs and
   are not being unified, so the table is the defence against confusing them:
 
   | Where | Encoding |
   |---|---|
-  | Engine search (`search.hpp`) | `MATE_SCORE` 30000, one per **ply**: mated at ply p is `-MATE_SCORE + p` |
+  | Engine search (`search.hpp`) | `MATE_SCORE` 40000, one per **ply**: mated at ply p is `-MATE_SCORE + p` |
   | Facade output (`uci.js`) | clamped to ±10000, so the game server only ever sees a plain number |
   | Dataset `target_value` | from 10010 to 10680, ten per **move** closer to mate: mate in N is `10000 + 10 * (69 - N)` |
 
@@ -622,14 +623,14 @@ it:
   with mates strictly above it.
 
 - **`MlpEvaluator::evaluate` now sits nowhere near the engine's mate band, by construction.**
-  `isMateScore` in `search.hpp` treats anything past `MATE_SCORE - MAX_PLY` — 29,936 — as a
+  `isMateScore` in `search.hpp` treats anything past `MATE_SCORE - MAX_PLY` — 39,936 — as a
   mate, and `search()` breaks out of iterative deepening when it sees one, so a net that
   overshot into that band on a position with no mate in it would make the engine stop
   deepening early and print `score mate N` with a meaningless N. Under the current target scale
   the largest value the model is ever trained toward is 10,680, so the clearance is over
-  **19,000** rather than the 36 the old encoding left. A clamp is still worth having, because a
+  **29,000** rather than the 36 the old encoding left. A clamp is still worth having, because a
   regression head is not bounded by the range of its targets — **±15,000** on the current scale,
-  comfortably above the 10,680 the model is trained toward and comfortably below 29,936 — but it
+  comfortably above the 10,680 the model is trained toward and comfortably below 39,936 — but it
   is a guard rail, not the only thing standing between the evaluator and a broken search. Real
   mates still report correctly: they come from the terminal-position path, never the evaluator.
 - **One label source: our own Stockfish, over positions sampled from games.** Training was
