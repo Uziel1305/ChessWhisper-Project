@@ -1,6 +1,7 @@
 const http = require('http');
 const {
     evaluate,
+    chooseMove,
     DEFAULT_BUDGET_MS,
     COOLDOWN_MS,
     _resetBreaker,
@@ -256,5 +257,77 @@ describe('engineClient.evaluate', () => {
             for (let i = 0; i < 5; i++) await expect(evaluate(FEN)).resolves.toEqual({ cp: 12, mateIn: null });
             expect(stub.requests).toHaveLength(5);
         });
+    });
+});
+
+describe('engineClient.chooseMove', () => {
+    const originalUrl = process.env.ENGINE_URL;
+    let stub;
+    let now;
+
+    beforeEach(() => {
+        _resetBreaker();
+    });
+
+    afterEach(async () => {
+        process.env.ENGINE_URL = originalUrl;
+        if (stub) {
+            stub.server.closeAllConnections();
+            await new Promise((resolve) => stub.server.close(resolve));
+            stub = undefined;
+        }
+    });
+
+    function answer(status, body) {
+        return (req, res) => {
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(body));
+        };
+    }
+
+    it('posts to /evaluate with the 200ms default and returns the move the engine chose', async () => {
+        stub = await startStub(answer(200, { cp: 30, bestMove: 'e7e5' }));
+        process.env.ENGINE_URL = stub.url;
+
+        await expect(chooseMove(FEN)).resolves.toEqual({ bestMove: 'e7e5' });
+        expect(stub.requests).toEqual([
+            { method: 'POST', url: '/evaluate', body: { fen: FEN, budgetMs: DEFAULT_BUDGET_MS } },
+        ]);
+    });
+
+    it('returns null when the facade reports no move', async () => {
+        stub = await startStub(answer(200, { cp: -10000 }));
+        process.env.ENGINE_URL = stub.url;
+
+        await expect(chooseMove(FEN)).resolves.toEqual({ bestMove: null });
+    });
+
+    it('rejects a non-string bestMove', async () => {
+        stub = await startStub(answer(200, { cp: 0, bestMove: 42 }));
+        process.env.ENGINE_URL = stub.url;
+
+        await expect(chooseMove(FEN)).rejects.toThrow('non-string bestMove');
+    });
+
+    // One engine, one view of its health: a failure on either call opens the
+    // circuit for both, and a probe through either closes it for both.
+    it('shares the circuit breaker with evaluate', async () => {
+        now = 1_000_000;
+        _setClock(() => now);
+        let healthy = false;
+        stub = await startStub((req, res) => {
+            answer(healthy ? 200 : 500, healthy ? { cp: 12, bestMove: 'e7e5' } : { error: 'x' })(req, res);
+        });
+        process.env.ENGINE_URL = stub.url;
+
+        await expect(chooseMove(FEN)).rejects.toThrow('engine responded 500');
+        await expect(evaluate(FEN)).rejects.toThrow('circuit open');
+        expect(stub.requests).toHaveLength(1);
+
+        now += COOLDOWN_MS;
+        healthy = true;
+        await expect(evaluate(FEN)).resolves.toEqual({ cp: 12, mateIn: null }); // the probe
+        await expect(chooseMove(FEN)).resolves.toEqual({ bestMove: 'e7e5' }); // closed for both
+        expect(stub.requests).toHaveLength(3);
     });
 });

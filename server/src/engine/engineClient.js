@@ -40,7 +40,7 @@ let now = Date.now;    // swappable clock, so tests can step past the cool-down
 // async, so every failure — including a missing ENGINE_URL — is a rejection and
 // never a synchronous throw the caller would have to guard separately.
 // ENGINE_URL is read at call time rather than at load so tests can point it at
-// a stub.
+// a stub. chooseMove() below repeats this breaker guard — keep the two in sync.
 async function evaluate(fen, budgetMs = DEFAULT_BUDGET_MS) {
     const base = process.env.ENGINE_URL;
     // A configuration error, not an engine failure: it says nothing about the
@@ -85,6 +85,54 @@ async function request(base, fen, budgetMs) {
     return { cp, mateIn: mateIn ?? null };
 }
 
+// Asks the engine to *play*: same facade endpoint and budget as evaluate(), but
+// resolves { bestMove } — the UCI move it chose, or null when it reported none.
+// Used only by engineOpponent, for games against the engine.
+//
+// It goes through the same circuit breaker as evaluate(), on the same state:
+// there is one engine, so one view of whether it is healthy, and a dead engine
+// must not cost a DNS-thread stall per retry here either. The guard below is a
+// deliberate copy of evaluate()'s rather than a shared helper, so that
+// evaluate() itself stayed untouched when this was added — keep the two in sync.
+async function chooseMove(fen, budgetMs = DEFAULT_BUDGET_MS) {
+    const base = process.env.ENGINE_URL;
+    if (!base) throw new Error('ENGINE_URL is not set');
+
+    if (tripped) {
+        if (now() < openUntil || probing) throw new Error('engine unavailable (circuit open)');
+        probing = true; // this call is the probe
+    }
+
+    try {
+        const move = await requestMove(base, fen, budgetMs);
+        tripped = false;
+        probing = false;
+        return move;
+    } catch (err) {
+        tripped = true;
+        probing = false;
+        openUntil = now() + COOLDOWN_MS;
+        throw err;
+    }
+}
+
+async function requestMove(base, fen, budgetMs) {
+    const res = await fetch(`${base}/evaluate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fen, budgetMs }),
+        signal: AbortSignal.timeout(budgetMs + TIMEOUT_MARGIN_MS),
+    });
+    if (!res.ok) throw new Error(`engine responded ${res.status}`);
+
+    // The facade omits bestMove when the position has no legal move.
+    const { bestMove } = await res.json();
+    if (bestMove !== undefined && typeof bestMove !== 'string') {
+        throw new Error('engine returned a non-string bestMove');
+    }
+    return { bestMove: bestMove ?? null };
+}
+
 // Test hooks: the breaker is module-level state, and its clock has to be
 // steppable. Nothing in the server calls these.
 function _resetBreaker() {
@@ -98,4 +146,4 @@ function _setClock(fn) {
     now = fn;
 }
 
-module.exports = { evaluate, DEFAULT_BUDGET_MS, COOLDOWN_MS, _resetBreaker, _setClock };
+module.exports = { evaluate, chooseMove, DEFAULT_BUDGET_MS, COOLDOWN_MS, _resetBreaker, _setClock };

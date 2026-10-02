@@ -40,6 +40,10 @@ const EVALUATED_MODES = new Set(['eval', 'feedback']);
 //               ended:         false               ← RAM only. Set once by
 //                              endGame, so a second call on a reference a
 //                              caller already held (see endGame) is a no-op.
+//               unrated:       true      ← engine games only (createEngineGame).
+//                              Absent on every queue game. endGame skips Elo.
+//               engineColor:   'black'   ← engine games only: which side the
+//                              engine user plays. engineOpponent reads it.
 //            }
 const games = new Map();
 
@@ -148,6 +152,60 @@ async function createGame({ mode, timeControl, players }) {
 
     hub.sendToUser(whiteUserId, matchFound(game, 'white', blackUser));
     hub.sendToUser(blackUserId, matchFound(game, 'black', whiteUser));
+
+    return game;
+}
+
+// A game against the engine: one human, the engine's system user as the other
+// participant, no queue. Kept apart from createGame rather than folded into it,
+// so the matchmaking path stays exactly as it was. Everything after creation —
+// applyMove, clocks, resign, abandon, timeout — is shared: the engine user is a
+// real users row, so it passes every participant check, and sendToUser to it is
+// a no-op because it never holds a socket.
+async function createEngineGame({ userId, engineUser, mode, timeControl }) {
+    const hub = require('../ws/hub');
+
+    // Same coin flip as createGame.
+    const humanWhite = Math.random() < 0.5;
+    const whiteUserId = humanWhite ? userId : engineUser.id;
+    const blackUserId = humanWhite ? engineUser.id : userId;
+
+    const id = crypto.randomUUID();
+    await gamesRepo.insert({
+        id,
+        whiteUserId,
+        blackUserId,
+        mode,
+        timeControlMs: timeControl,
+    });
+
+    // The engine gets a real clock, which runs while it thinks.
+    const clocks = {
+        white: new Clock(timeControl, () => onFlag(id, 'white')),
+        black: new Clock(timeControl, () => onFlag(id, 'black')),
+    };
+
+    const game = {
+        id,
+        mode,
+        timeControlMs: timeControl,
+        whiteUserId,
+        blackUserId,
+        position: new Game(),
+        ply: 0,
+        clocks,
+        evals: new Map(),
+        mates: new Map(),
+        classified: new Set(),
+        unrated: true,
+        engineColor: humanWhite ? 'black' : 'white',
+    };
+    games.set(id, game);
+    game.clocks.white.start();
+
+    // The usual match.found, to the human only. The opponent is the engine
+    // user's own row, so the shape is identical to a queue match.
+    hub.sendToUser(userId, matchFound(game, humanWhite ? 'white' : 'black', engineUser));
 
     return game;
 }
@@ -403,6 +461,11 @@ async function endGame(game, { result, reason }) {
     // and timeout as well as the position-based endings.
     remove(game.id);
 
+    // Engine games are unrated: they leave here, before anything below reads or
+    // writes a rating. Queue games never carry `unrated`, so for them this
+    // function runs exactly as it always has.
+    if (game.unrated) return endUnratedGame(game, { result, reason });
+
     // Rating deltas need each player's *current* rating (match.found's
     // snapshot is stale by now — either player may have finished other games
     // since) and how many rated games they've each already finished, for
@@ -479,6 +542,23 @@ async function endGame(game, { result, reason }) {
     return { white: whiteEvent, black: blackEvent };
 }
 
+// endGame's tail for an unrated game: the result is recorded and announced, and
+// nothing else — no Elo, no users.rating write, no rating_history row. One write,
+// so no transaction. Persisted before broadcasting, like endGame. game.end has no
+// newRating/ratingDelta here: absent, not null, the same convention as mateIn.
+async function endUnratedGame(game, { result, reason }) {
+    const hub = require('../ws/hub');
+
+    await gamesRepo.finish({ id: game.id, result, reason });
+
+    const event = { type: 'game.end', result, reason };
+    // Both participants, as endGame does. The engine's copy goes nowhere.
+    hub.sendToUser(game.whiteUserId, event);
+    hub.sendToUser(game.blackUserId, event);
+
+    return { white: event, black: event };
+}
+
 
 // Resignation is not a move and not a property of the position, so it never
 // touches Game — the resigner loses, whatever the board looks like.
@@ -541,4 +621,4 @@ function activeCount() {
     return games.size;
 }
 
-module.exports = { createGame, applyMove, resign, abandon, endGame, get, remove, activeCount };
+module.exports = { createGame, createEngineGame, applyMove, resign, abandon, endGame, get, remove, activeCount };

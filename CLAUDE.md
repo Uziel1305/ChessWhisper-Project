@@ -291,8 +291,9 @@ Express 5's default **HTML** 500, not the project's `{error, message}` envelope:
 
 ### `mode` names the assist features, not a rating category (decided August 2026)
 
-Every game is rated. `mode` — carried by `queue.join`, stored in `games.mode` — says which
-AI-assist features are switched on for that game:
+Every game between two players is rated (games against the engine are not — see "Playing
+the engine is an unrated game against a system user"). `mode` — carried by `queue.join`,
+stored in `games.mode` — says which AI-assist features are switched on for that game:
 
 - The vocabulary is `classic` (no assistance), `eval` (evaluation bar), `feedback`
   (instant move classification) and `retraction` (Tactical Retraction undo window). The
@@ -317,9 +318,64 @@ AI-assist features are switched on for that game:
   Since CW-214 it includes `RETRACTION` too, so game history can label it, with
   `offeredInPicker = false` — the picker iterates `GameMode.pickerModes()`, never
   `values()`. An unknown future mode (`fromWire` returns null) shows its raw wire value.
-- Rejected alternative: `mode` as `rated`/`casual`. Nothing in this product is unrated, so
-  the field would have carried no information, and the assist features would then have
-  needed a second field anyway.
+- Rejected alternative: `mode` as `rated`/`casual`. No game between two players is unrated,
+  so the field would have carried no information, and the assist features would then have
+  needed a second field anyway. (Engine games are unrated because of who the opponent is,
+  not because of a mode — which is why that is not a `mode` value either.)
+
+### Playing the engine is an unrated game against a system user (decided October 2026)
+
+A player can start a game against the custom engine from Home, with no queue. The engine is
+an ordinary participant in an ordinary game, so moves, clocks, resign, abandon and history
+all run through the existing code:
+
+- **The engine is a row in `users`** (`is_engine = true`, seeded by `007_engine_user.sql`,
+  at most one by a partial unique index, username `ChessWhisper Engine`, rating a fixed
+  1000). Its password hash is a valid argon2 hash of a secret nobody kept, so login answers
+  401 and it never holds a token or a socket — every `sendToUser` addressed to it is a no-op.
+  `games` is unchanged: the engine sits in `white_user_id` or `black_user_id` like anyone.
+  `engineUser.repo.js` finds it, so `users.repo.js` stayed untouched.
+- **Opponent is not a `mode`.** `mode` still names the assist features. An engine game is
+  started by its own event, `engine.start {mode, timeControl}`, never by `queue.join`, so the
+  queue and its key are untouched. It carries `mode` from its first version, but only
+  `classic` is accepted (`ENGINE_MODES` in `engineOpponent.js`), and Android disables the mode
+  picker when Engine is chosen. Lifting that is one entry in the set plus the picker — and
+  then about 1.5 engine calls per half-move, since the move search and the evaluation of the
+  same position would be separate calls. Failures come back as `queue.rejected`
+  (`mode_not_offered`, `already_playing`, `engine_unavailable`, `game_not_created`, plus the
+  queue's own `unknown_mode` / `unknown_time_control`). Colour is the same coin flip as
+  matchmaking. One live engine game per player.
+- **The engine's move goes through `applyMove`** under the engine user's id: the same
+  participant, turn and chess.js checks, the same `moves` row, the same `move.committed`.
+  An illegal move from our own engine is refused like a player's. The reply is triggered by
+  the hub after a player's move commits (`engineOpponent.afterHumanMove`, a no-op for any
+  game without `engineColor`), so `applyMove` itself knows nothing about engines.
+- **Not every game is rated any more.** `GameManager.createEngineGame` marks the live game
+  `unrated: true`, and `endGame` returns into `endUnratedGame` right after its shared guard,
+  clock pause and removal: one `games.finish`, no Elo, no `users.rating` write, no
+  `rating_history` row. `countRatedGames` leaves out any game with an `is_engine`
+  participant, so engine games never move a player's K-factor either. `countFinishedByUser`
+  still counts them: the Games counter means "finished games", and history lists them as
+  "vs ChessWhisper Engine" with `ratingDelta: null`.
+- **Event-shape change.** An engine game's `game.end` is `{type, result, reason}` —
+  `newRating` and `ratingDelta` absent, never null, the same convention as `mateIn`. Android
+  hides the rating line when they are missing. Human games are unchanged. `match.found` is
+  unchanged in shape; its `opponent` is the engine user's row.
+- **Capacity.** Engine games are classic, so they cost no evaluation. The engine's move is one
+  200 ms search per engine turn through `engineClient.chooseMove`, which shares `evaluate`'s
+  circuit breaker on the same state — one engine, one view of its health. Its guard is a
+  deliberate copy of `evaluate`'s so `evaluate` stayed untouched; keep the two in sync.
+  That is at most 0.5 engine calls per ply, against 1 for an eval game.
+- **Failure.** If the engine cannot produce a legal move, the server retries every 2 s; 15 s
+  after the engine's turn began, the engine forfeits — the player wins, reason
+  `engine_failed`. A frozen board is worse than an unrated win. Because the first failure
+  opens the breaker for 10 s, a real outage gets exactly one real retry, at about 11–13 s;
+  that is accepted.
+- Rejected alternatives: `engine` as a mode value (blurs what `mode` means, edits the
+  queue); a nullable opponent column on `games` (breaks the history JOIN and every
+  participant check); a separate engine-game manager (a second copy of moves, clocks and
+  endings to keep in sync, invisible to abandon-on-disconnect); a breaker-less HTTP client
+  for engine moves (a dead engine would stall DNS threads and slow human games too).
 
 ### The `moves` table stores UCI only, not the resulting position (decided September 2026)
 
