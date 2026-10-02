@@ -281,7 +281,7 @@ describe('engine evaluation in the move pipeline', () => {
             ]);
         });
 
-        it('a feedback game ignores mateIn and classifies from the clamped evalCp', async () => {
+        it('a feedback game classifies a move into mate from the clamped evalCp', async () => {
             const game = await newGame('feedback');
             await play(game, ['e2e4', 'e7e5']);
             await answer(1, 30);
@@ -293,6 +293,36 @@ describe('engine evaluation in the move pipeline', () => {
                 [String(game.blackUserId), { type: 'move.feedback', ply: 2, classification: 'blunder', cpLoss: 9970 }],
             ]);
             expect(evalUpdateEvents()).toEqual([]);
+        });
+
+        it('a feedback game classifies a move between two mates by the mate distance', async () => {
+            const game = await newGame('feedback');
+            await play(game, ['e2e4', 'e7e5', 'g1f3']);
+            // Ply 1 never answers, so only ply 3 can be classified. White had
+            // mate in 5 and played into mate in 8: 4 moves conceded against
+            // the best continuation's 4, though both evals are the same 10000.
+            await answer(2, 10000, 5);
+            await answer(3, 10000, 8);
+
+            expect(feedbackEvents()).toEqual([
+                [String(game.whiteUserId), { type: 'move.feedback', ply: 3, classification: 'inaccuracy', cpLoss: 0 }],
+            ]);
+        });
+    });
+
+    describe('lost advantage', () => {
+        it('adds lostAdvantage to the verdict when the mover went from clearly ahead to clearly behind', async () => {
+            const game = await newGame('feedback');
+            await play(game, ['e2e4', 'e7e5', 'g1f3']);
+            // White +150 -> -150: a 300 cp loss, and the lead changed hands.
+            await answer(2, 150);
+            await answer(3, -150);
+
+            expect(feedbackEvents()).toEqual([
+                [String(game.whiteUserId), {
+                    type: 'move.feedback', ply: 3, classification: 'blunder', cpLoss: 300, lostAdvantage: true,
+                }],
+            ]);
         });
     });
 

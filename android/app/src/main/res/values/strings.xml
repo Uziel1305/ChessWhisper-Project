@@ -73,9 +73,12 @@
     <!-- CW-149: only ever shown once match.found.mode == "feedback"; ply 1 is
          never classified, so this covers the gap until the first move.feedback. -->
     <string name="feedback_placeholder">Play a move to see feedback</string>
-    <string name="feedback_verdict_best">Best</string>
-    <string name="feedback_verdict_good">Good</string>
-    <string name="feedback_verdict_inaccuracy">Inaccuracy</string>
-    <string name="feedback_verdict_mistake">Mistake</string>
-    <string name="feedback_verdict_blunder">Blunder</string>
+    <string name="feedback_verdict_best">Spot on!</string>
+    <string name="feedback_verdict_good">Solid move</string>
+    <string name="feedback_verdict_inaccuracy">Slightly off</string>
+    <string name="feedback_verdict_mistake">That hurts</string>
+    <string name="feedback_verdict_blunder">Ouch!</string>
+    <!-- Shown instead of the verdict label when move.feedback carries
+         lostAdvantage; the card keeps the verdict's colour and bars. -->
+    <string name="feedback_lost_advantage">Lead slipped away</string>
 </resources>

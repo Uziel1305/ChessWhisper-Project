@@ -409,6 +409,42 @@ A move's verdict comes from its centipawn loss, against these fixed thresholds:
   centipawns under Stockfish and under the custom engine. CW-83's benchmark is where that
   is checked — known blunders and known good moves must get matching classifications from
   both — and is the one place these numbers may be revisited.
+- **When both positions are a forced mate for the same side, the verdict comes from the mate
+  distance instead** (decided October 2026). Every mate clamps to the same ±10000, so cp
+  loss there is always 0 and mate-in-5 played into mate-in-8 used to read "best". `mateIn`
+  counts full moves from the side to move, so under best play the attacker's move takes it
+  down by exactly one and the defender's reply leaves it unchanged. The mover concedes
+  whatever falls short of that, clamped at 0:
+
+  | Moves conceded | Verdict |
+  |---|---|
+  | 0 | best |
+  | 1–2 | good |
+  | 3+ | inaccuracy |
+
+  Never worse than inaccuracy: keeping a forced mate has not given the win away. No
+  tolerance for engine jitter — a one-move wobble costs at most best→good, and skipping a
+  mate in 1 for another mate in 1 is "good", not "best". The table is `MATE_THRESHOLDS`,
+  beside `THRESHOLDS`, and `THRESHOLDS` stays the only cp table.
+- **Every other case stays on cp loss, unchanged**: mate delivered (best — `mate 0` arrives
+  as no `mateIn`, with `evalCp` pinned), mate let go, stalemate thrown, walking into mate,
+  and a mate that changes hands (all blunder). The mate path needs both `mateIn` values
+  non-null with the same sign.
+- **On the mate path, `feedback.cp_loss` (and the wire's `cpLoss`) can be 0 while the
+  classification is worse than best.** That column records the clamped cp difference, not
+  the reason for the verdict, so it must never be read as "this move cost nothing".
+- **Lost advantage** (decided October 2026): `move.feedback` carries `lostAdvantage: true`
+  when, from the mover's side, the evaluation was at least `+LOST_ADVANTAGE_CP` (100)
+  before the move and at most `-LOST_ADVANTAGE_CP` after it. One pawn is the conventional
+  clear edge; the dead zone either side of 0 keeps engine noise around equality from firing
+  it; and the ≥200 cp swing it implies means it only ever accompanies a mistake or a
+  blunder. The constant sits beside `THRESHOLDS`. It needs the same two evaluations as the
+  verdict, so a ply without a verdict (ply 1, or a failed engine call) never carries it.
+- **Event-shape change.** `move.feedback` is `{type, ply, classification, cpLoss}` plus
+  `lostAdvantage: true` only when true — absent otherwise, never `false`, the same
+  convention as `mateIn`. Still sent to the mover only. Android shows "Lead slipped away"
+  in place of the verdict label while keeping the verdict's colour and bars, and no longer
+  displays `cpLoss` at all; it stays on the wire and in `feedback.cp_loss`.
 
 ### `eval.update` carries the mate distance as an optional `mateIn` (decided September 2026)
 
@@ -429,10 +465,12 @@ No extra engine call.
 - **`mate 0` — the position is already checkmate — is absent too.** There is no mate
   ahead, and a zero distance cannot say who delivered it (JSON has no −0). `evalCp` still
   pins to the winner's end, and `game.end` announces the checkmate.
-- **`evalCp` is unchanged and remains the only thing classification reads.** `game.evals`
-  still stores plain clamped centipawns, so `mateIn` never reaches `move.feedback`. It is
-  not stored on the game at all — `evaluatePly` passes it straight into that ply's
-  broadcast.
+- **`evalCp` is unchanged, and `mateIn` now reaches classification too** (October 2026).
+  `game.evals` still stores plain clamped centipawns; `game.mates` stores each ply's
+  `mateIn` (or `null`) beside it, written in the same place so the two always cover the
+  same plies. Classification reads it only when both neighbouring positions are a mate for
+  the same side — see "Move classification thresholds". It is still RAM only, never
+  persisted, and never sent in `move.feedback`.
 - **No distance threshold on the wire.** The server reports whatever distance the engine
   found; showing an indicator only for `abs(mateIn) <= 5` is an Android display rule
   (CW-153). The bar itself needs no `mateIn` to pin to the right end — the clamped
@@ -568,13 +606,14 @@ it:
 - **This replaced `sign * (30000 - 100 * N)`** once the dump had been inspected. That form put
   mate targets an order of magnitude above ordinary evaluations, and it placed mate in 1 at
   29,900 against `isMateScore`'s 29,936 threshold — 36 centipawns of clearance between a
-  training target and the engine's own proven-mate band.
+  training target and the engine's own proven-mate band. (Those figures are from when
+  `MATE_SCORE` was 30000; it was raised to 40000 in September 2026.)
 - **This puts three different mate encodings in the project.** They serve different jobs and
   are not being unified, so the table is the defence against confusing them:
 
   | Where | Encoding |
   |---|---|
-  | Engine search (`search.hpp`) | `MATE_SCORE` 30000, one per **ply**: mated at ply p is `-MATE_SCORE + p` |
+  | Engine search (`search.hpp`) | `MATE_SCORE` 40000, one per **ply**: mated at ply p is `-MATE_SCORE + p` |
   | Facade output (`uci.js`) | clamped to ±10000, so the game server only ever sees a plain number |
   | Dataset `target_value` | from 10010 to 10680, ten per **move** closer to mate: mate in N is `10000 + 10 * (69 - N)` |
 
@@ -584,14 +623,14 @@ it:
   with mates strictly above it.
 
 - **`MlpEvaluator::evaluate` now sits nowhere near the engine's mate band, by construction.**
-  `isMateScore` in `search.hpp` treats anything past `MATE_SCORE - MAX_PLY` — 29,936 — as a
+  `isMateScore` in `search.hpp` treats anything past `MATE_SCORE - MAX_PLY` — 39,936 — as a
   mate, and `search()` breaks out of iterative deepening when it sees one, so a net that
   overshot into that band on a position with no mate in it would make the engine stop
   deepening early and print `score mate N` with a meaningless N. Under the current target scale
   the largest value the model is ever trained toward is 10,680, so the clearance is over
-  **19,000** rather than the 36 the old encoding left. A clamp is still worth having, because a
+  **29,000** rather than the 36 the old encoding left. A clamp is still worth having, because a
   regression head is not bounded by the range of its targets — **±15,000** on the current scale,
-  comfortably above the 10,680 the model is trained toward and comfortably below 29,936 — but it
+  comfortably above the 10,680 the model is trained toward and comfortably below 39,936 — but it
   is a guard rail, not the only thing standing between the evaluator and a broken search. Real
   mates still report correctly: they come from the terminal-position path, never the evaluator.
 - **One label source: our own Stockfish, over positions sampled from games.** Training was
