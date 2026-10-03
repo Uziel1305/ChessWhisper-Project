@@ -42,6 +42,7 @@ public class HomeActivity extends SessionAwareActivity {
     private MaterialButton retryButton;
     private MaterialButton playButton;
     private MaterialButtonToggleGroup modePicker;
+    private MaterialButtonToggleGroup opponentPicker;
     private TextView gamesText;
     private RecyclerView historyList;
     private TextView historyEmpty;
@@ -91,6 +92,7 @@ public class HomeActivity extends SessionAwareActivity {
         retryButton = findViewById(R.id.retryButton);
         playButton = findViewById(R.id.playButton);
         modePicker = findViewById(R.id.modePicker);
+        opponentPicker = findViewById(R.id.opponentPicker);
         gamesText = findViewById(R.id.gamesText);
         historyList = findViewById(R.id.historyList);
         historyEmpty = findViewById(R.id.historyEmpty);
@@ -99,6 +101,7 @@ public class HomeActivity extends SessionAwareActivity {
         // Tied to this Activity, so the same instance comes back after rotation.
         viewModel= new ViewModelProvider(this).get(HomeViewModel.class);
         bindModePicker();
+        bindOpponentPicker();
         viewModel.getHistoryState().observe(this, this::renderHistory);
         viewModel.getState().observe(this, new Observer<HomeViewModel.HomeState>() {
             @Override
@@ -151,6 +154,10 @@ public class HomeActivity extends SessionAwareActivity {
             // selectionRequired means a click never leaves nothing checked, but
             // it still reports the previous button being unchecked — ignore that.
             if (!isChecked) return;
+            // Against the engine the picker only *shows* Classic (see
+            // bindOpponentPicker) and is disabled, so a check here is never the
+            // player's choice and must not overwrite the one they made.
+            if (viewModel.getSelectedOpponent() == Opponent.ENGINE) return;
             for (GameMode mode : GameMode.pickerModes()) {
                 if (buttonIdFor(mode) == checkedId) {
                     viewModel.selectMode(mode);
@@ -158,6 +165,40 @@ public class HomeActivity extends SessionAwareActivity {
                 }
             }
         });
+    }
+
+    // Player or Engine. Engine games are classic only, so while Engine is chosen
+    // the mode picker shows Classic and is disabled (updatePlayButtonEnabled
+    // owns every enabled flag); the player's own mode stays in HomeViewModel and
+    // is shown again when they switch back to Player.
+    private void bindOpponentPicker() {
+        opponentPicker.check(viewModel.getSelectedOpponent() == Opponent.ENGINE
+                ? R.id.opponentEngineButton : R.id.opponentPlayerButton);
+        showSelectedMode();
+        opponentPicker.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) return;
+            viewModel.selectOpponent(checkedId == R.id.opponentEngineButton
+                    ? Opponent.ENGINE : Opponent.PLAYER);
+            showSelectedMode();
+        });
+    }
+
+    // Shows the mode the next game will be played in, then sets every enabled
+    // flag from the current state.
+    private void showSelectedMode() {
+        GameMode shown = viewModel.getSelectedOpponent() == Opponent.ENGINE
+                ? GameMode.CLASSIC : viewModel.getSelectedMode();
+        // MaterialButton ignores setChecked while disabled, but the toggle group
+        // still records the check — so a check made on disabled buttons is never
+        // drawn, and the group and the screen disagree (two highlighted, or the
+        // wrong one). Check them enabled, then let updatePlayButtonEnabled, which
+        // owns the flags, set them back. One synchronous block: nothing is drawn
+        // and no tap lands in between.
+        for (int i = 0; i < modePicker.getChildCount(); i++) {
+            modePicker.getChildAt(i).setEnabled(true);
+        }
+        modePicker.check(buttonIdFor(shown));
+        updatePlayButtonEnabled(viewModel.getMatchmakingState().getValue());
     }
 
     // A switch on the enum, not on R.id values: resource ids are not
@@ -265,9 +306,16 @@ public class HomeActivity extends SessionAwareActivity {
         // The mode is fixed once queue.join has gone out; changing the picker
         // mid-queue would show a mode the player isn't actually waiting in. Each
         // button is disabled individually — a ViewGroup's own enabled flag
-        // doesn't reach its children.
+        // doesn't reach its children. Against the engine the mode is always
+        // Classic, so the picker stays disabled whatever the connection state.
+        boolean engine = viewModel.getSelectedOpponent() == Opponent.ENGINE;
         for (int i = 0; i < modePicker.getChildCount(); i++) {
-            modePicker.getChildAt(i).setEnabled(!connecting);
+            modePicker.getChildAt(i).setEnabled(!connecting && !engine);
+        }
+        // The opponent is fixed once the first message has gone out, for the
+        // same reason as the mode.
+        for (int i = 0; i < opponentPicker.getChildCount(); i++) {
+            opponentPicker.getChildAt(i).setEnabled(!connecting);
         }
     }
 

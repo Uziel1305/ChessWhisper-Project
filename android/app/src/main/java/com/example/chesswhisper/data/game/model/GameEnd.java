@@ -5,9 +5,12 @@ package com.example.chesswhisper.data.game.model;
 // newRating/ratingDelta (CW-134) are this recipient's own values — GameManager
 // sends a different payload to each socket now, not one shared object, since
 // the two players' rating changes genuinely differ.
+//
+// Boxed because a game against the engine is unrated: its game.end carries no
+// newRating/ratingDelta at all, so both are null here rather than a misleading 0.
 public class GameEnd {
     public String result;
     public String reason;
-    public int newRating;
-    public int ratingDelta;
+    public Integer newRating;
+    public Integer ratingDelta;
 }

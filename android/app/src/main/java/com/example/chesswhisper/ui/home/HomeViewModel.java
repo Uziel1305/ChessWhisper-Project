@@ -173,6 +173,19 @@ public class HomeViewModel extends ViewModel {
         selectedMode = mode;
     }
 
+    // Who the next game is against. Held here for the same reasons as the mode.
+    // Choosing ENGINE leaves selectedMode alone — engine games are classic only,
+    // so it is simply not used, and it is still there when PLAYER comes back.
+    private Opponent selectedOpponent = Opponent.DEFAULT;
+
+    public Opponent getSelectedOpponent() {
+        return selectedOpponent;
+    }
+
+    public void selectOpponent(Opponent opponent) {
+        selectedOpponent = opponent;
+    }
+
     // The listener this screen handed to GameSocket, kept so onCleared() can
     // cancel exactly this screen's matchmaking and nothing newer.
     private GameSocket.MatchListener matchListener;
@@ -197,7 +210,13 @@ public class HomeViewModel extends ViewModel {
                         MatchmakingStatus.ERROR, null, "Couldn't reach the server."));
             }
         };
-        GameSocket.getInstance().connectAndJoinQueue(selectedMode.wireValue, matchListener);
+        if (selectedOpponent == Opponent.ENGINE) {
+            // No queue: the server answers at once with match.found. Classic is
+            // the only mode the server offers against the engine.
+            GameSocket.getInstance().connectAndStartEngineGame(GameMode.CLASSIC.wireValue, matchListener);
+        } else {
+            GameSocket.getInstance().connectAndJoinQueue(selectedMode.wireValue, matchListener);
+        }
     }
 
     // Called by the Activity right after it launches GameActivity for a match.

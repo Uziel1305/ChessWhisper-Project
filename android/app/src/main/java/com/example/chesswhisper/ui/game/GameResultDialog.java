@@ -18,8 +18,10 @@ final class GameResultDialog {
     private GameResultDialog() {
     }
 
-    static void show(Context context, String result, String reason, int newRating,
-            int ratingDelta, Runnable onBackToHome) {
+    // newRating/ratingDelta are null for an unrated game (against the engine),
+    // and the rating line is then left out rather than shown as "0 (+0)".
+    static void show(Context context, String result, String reason, Integer newRating,
+            Integer ratingDelta, Runnable onBackToHome) {
         View view = LayoutInflater.from(context).inflate(R.layout.dialog_game_result, null);
 
         String message;
@@ -31,11 +33,16 @@ final class GameResultDialog {
         }
         ((TextView) view.findViewById(R.id.resultMessage)).setText(message);
 
-        // Explicit sign always, even for zero — "New rating: 1000 (+0)" reads
-        // as "no change", where a bare "0" could be misread as truncation.
-        String signedDelta = (ratingDelta >= 0 ? "+" : "") + ratingDelta;
-        ((TextView) view.findViewById(R.id.ratingChangeText)).setText(
-                context.getString(R.string.game_result_rating_change, newRating, signedDelta));
+        TextView ratingChangeText = view.findViewById(R.id.ratingChangeText);
+        if (newRating == null || ratingDelta == null) {
+            ratingChangeText.setVisibility(View.GONE);
+        } else {
+            // Explicit sign always, even for zero — "New rating: 1000 (+0)" reads
+            // as "no change", where a bare "0" could be misread as truncation.
+            String signedDelta = (ratingDelta >= 0 ? "+" : "") + ratingDelta;
+            ratingChangeText.setText(
+                    context.getString(R.string.game_result_rating_change, newRating, signedDelta));
+        }
 
         AlertDialog dialog = new AlertDialog.Builder(context)
                 .setTitle(R.string.game_over_title)

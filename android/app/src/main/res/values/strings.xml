@@ -26,6 +26,9 @@
     <string name="mode_feedback">Feedback</string>
     <!-- Not in the picker (its feature isn't built), but history can show it. -->
     <string name="mode_retraction">Retraction</string>
+    <!-- Who the next game is against. Two share one row, like the modes. -->
+    <string name="opponent_player">vs Player</string>
+    <string name="opponent_engine">vs Engine</string>
     <string name="home_retry">Try again</string>
     <string name="home_logout">Log out</string>
     <string name="logout_confirm_title">Log out?</string>
