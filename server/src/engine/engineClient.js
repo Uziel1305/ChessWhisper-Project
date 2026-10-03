@@ -10,7 +10,7 @@
 // lives in GameManager, not here.
 
 // CLAUDE.md's per-evaluation budget.
-const DEFAULT_BUDGET_MS = 200;
+const DEFAULT_BUDGET_MS = 400;
 
 // The facade cuts a request off at budgetMs + 500 and answers 504. This cap is
 // deliberately longer, so a stuck engine normally fails through the facade's
