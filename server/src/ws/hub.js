@@ -7,6 +7,7 @@ const {WebSocketServer,WebSocket}=require('ws')
 const wss=new WebSocketServer({noServer:true})
 const queue = require('../matchmaking/queue');
 const gameManager = require('../game/GameManager');
+const engineOpponent = require('../game/engineOpponent');
 const usersRepo = require('../db/repositories/users.repo');
 
 // userId -> that user's socket. One only: a game cannot be played from two
@@ -279,10 +280,16 @@ wss.on('connection', (ws) => {
             // already advanced but neither player was told, so this is the one
             // case where the two sides genuinely diverge. The log is the only
             // signal, and it is worth watching for during CW-57's acceptance run.
+            //
+            // Once a move commits, the engine replies if this is a game against
+            // it. For every other game afterHumanMove returns undefined straight
+            // away, so the tracked promise settles exactly when it used to.
             track(gameManager.applyMove({
                 gameId: event.gameId,
                 userId: ws.userId,
                 uci: event.uci,
+            }).then((committed) => {
+                if (committed) return engineOpponent.afterHumanMove(event.gameId);
             }).catch((err) => {
                 console.error('game.move failed:', err);
             }));
@@ -297,6 +304,19 @@ wss.on('connection', (ws) => {
                 userId: ws.userId,
             }).catch((err) => {
                 console.error('game.resign failed:', err);
+            }));
+            return;
+        }
+        if (event.type === 'engine.start') {
+            // A game against the engine, no queue. Every expected failure is
+            // answered inside start() as queue.rejected; only a bug lands here.
+            track(engineOpponent.start(ws.userId, event).catch((err) => {
+                console.error('engine.start failed:', err);
+                sendToUser(ws.userId, {
+                    type: 'queue.rejected',
+                    error: 'game_not_created',
+                    message: 'could not start the game, please try again',
+                });
             }));
             return;
         }

@@ -59,7 +59,32 @@ public final class GameSocket {
         return instance;
     }
 
+    // The picker for it is deferred; every game is 10 minutes until it exists.
+    private static final int TIME_CONTROL_MS = 600000;
+
+    // Waits for a human opponent in the matchmaking queue.
     public void connectAndJoinQueue(String mode, MatchListener listener) {
+        JsonObject join = new JsonObject();
+        join.addProperty("type", "queue.join");
+        join.addProperty("mode", mode);
+        join.addProperty("timeControl", TIME_CONTROL_MS);
+        connect(join, listener);
+    }
+
+    // Starts a game against the engine at once — no queue. The server answers
+    // with the same match.found (or queue.rejected), so the same listener serves.
+    public void connectAndStartEngineGame(String mode, MatchListener listener) {
+        JsonObject start = new JsonObject();
+        start.addProperty("type", "engine.start");
+        start.addProperty("mode", mode);
+        start.addProperty("timeControl", TIME_CONTROL_MS);
+        connect(start, listener);
+    }
+
+    // Opens the socket and sends firstMessage once it is open. One connection
+    // and one dispatcher for both ways a game can start, so the in-game events
+    // are handled identically whoever the opponent is.
+    private void connect(JsonObject firstMessage, MatchListener listener) {
         this.matchListener = listener;
 
         // BASE_URL is "http://host:port/" — same host, ws:// scheme, /ws path.
@@ -71,11 +96,7 @@ public final class GameSocket {
         webSocket = ApiClient.getHttpClient().newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(WebSocket ws, Response response) {
-                JsonObject join = new JsonObject();
-                join.addProperty("type", "queue.join");
-                join.addProperty("mode", mode);
-                join.addProperty("timeControl", 600000);
-                ws.send(join.toString());
+                ws.send(firstMessage.toString());
             }
 
             @Override

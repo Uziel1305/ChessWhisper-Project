@@ -94,10 +94,11 @@ async function findHistoryByUser(userId, limit) {
     return result.rows;
 }
 
-// The home screen's Games counter: every finished game, either colour. Same SQL
-// as ratingsRepo.countRatedGames, deliberately kept separate — that one answers
-// "rated games" for Elo's K-factor, this one "finished games" for display. Today
-// every game is rated, so they agree; if that ever changes, only one should move.
+// The home screen's Games counter: every finished game, either colour —
+// engine games included, since history lists them too. Deliberately separate
+// from ratingsRepo.countRatedGames, which answers "rated games" for Elo's
+// K-factor and leaves engine games out. The two agree for every human-vs-human
+// game and differ only by a player's engine games.
 async function countFinishedByUser(userId) {
     const result = await pool.query(
         `SELECT COUNT(*) FROM games
