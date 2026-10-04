@@ -1,5 +1,7 @@
 package com.example.chesswhisper.data.game;
 
+import android.util.Log;
+
 import com.example.chesswhisper.BuildConfig;
 import com.example.chesswhisper.data.game.model.EvalUpdate;
 import com.example.chesswhisper.data.game.model.GameEnd;
@@ -45,6 +47,18 @@ public final class GameSocket {
     private MatchListener matchListener;
     private GameListener gameListener;
 
+    private static final String TAG = "GameSocket";
+
+    // Engine games only: in-game events that arrive before GameActivity listens
+    // are held here instead of dropped (see EngineEarlyEvents). A game between
+    // two people never touches it.
+    private final EngineEarlyEvents<GameListener, JsonObject> engineEarlyEvents =
+            new EngineEarlyEvents<>(GameSocket::deliverGameEvent,
+                    e -> Log.w(TAG, "dropped an early engine-game event", e));
+    // Identifies the connection opened by the latest connect(), so that a late
+    // message from an older socket is never held into the next game.
+    private volatile Object currentConnection;
+
     private GameSocket() {
     }
 
@@ -68,7 +82,7 @@ public final class GameSocket {
         join.addProperty("type", "queue.join");
         join.addProperty("mode", mode);
         join.addProperty("timeControl", TIME_CONTROL_MS);
-        connect(join, listener);
+        connect(join, listener, false);
     }
 
     // Starts a game against the engine at once — no queue. The server answers
@@ -78,14 +92,19 @@ public final class GameSocket {
         start.addProperty("type", "engine.start");
         start.addProperty("mode", mode);
         start.addProperty("timeControl", TIME_CONTROL_MS);
-        connect(start, listener);
+        connect(start, listener, true);
     }
 
     // Opens the socket and sends firstMessage once it is open. One connection
-    // and one dispatcher for both ways a game can start, so the in-game events
-    // are handled identically whoever the opponent is.
-    private void connect(JsonObject firstMessage, MatchListener listener) {
+    // and one dispatcher for both ways a game can start. holdEarlyEvents is true
+    // only for an engine game: there, in-game events that arrive before the game
+    // screen listens are held for it rather than dropped. For a game between two
+    // people it is false, and every message takes exactly the path it always has.
+    private void connect(JsonObject firstMessage, MatchListener listener, boolean holdEarlyEvents) {
         this.matchListener = listener;
+        final Object connection = new Object();
+        currentConnection = connection;
+        engineEarlyEvents.reset();
 
         // BASE_URL is "http://host:port/" — same host, ws:// scheme, /ws path.
         String wsUrl = BuildConfig.BASE_URL.replaceFirst("^http", "ws") + "ws";
@@ -110,6 +129,19 @@ public final class GameSocket {
                 String type = json.has("type") ? json.get("type").getAsString() : null;
                 if (type == null) {
                     return;
+                }
+                // Engine games only. A match.found on this connection starts
+                // holding, and the in-game events go through engineEarlyEvents,
+                // which delivers them just as below once the game screen
+                // listens. Human games skip this block entirely.
+                if (holdEarlyEvents) {
+                    if ("match.found".equals(type) && connection == currentConnection) {
+                        engineEarlyEvents.startHolding(connection);
+                    }
+                    if (isInGameEvent(type)) {
+                        engineEarlyEvents.offer(connection, json, () -> gameListener);
+                        return;
+                    }
                 }
                 switch (type) {
                     case "match.found":
@@ -164,6 +196,41 @@ public final class GameSocket {
     // running — nothing here reconnects.
     public void setGameListener(GameListener listener) {
         this.gameListener = listener;
+        // Hands over an engine game's held events. A no-op in every other case.
+        engineEarlyEvents.release(listener);
+    }
+
+    private static boolean isInGameEvent(String type) {
+        switch (type) {
+            case "move.committed":
+            case "move.feedback":
+            case "eval.update":
+            case "game.end":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // The engine-game path's delivery: the same parse-and-call as the in-game
+    // cases of onMessage's switch, which human games still use unchanged.
+    private static void deliverGameEvent(GameListener listener, JsonObject json) {
+        switch (json.get("type").getAsString()) {
+            case "move.committed":
+                listener.onMoveCommitted(new Gson().fromJson(json, MoveCommitted.class));
+                break;
+            case "move.feedback":
+                listener.onMoveFeedback(new Gson().fromJson(json, MoveFeedback.class));
+                break;
+            case "eval.update":
+                listener.onEvalUpdate(new Gson().fromJson(json, EvalUpdate.class));
+                break;
+            case "game.end":
+                listener.onGameEnd(new Gson().fromJson(json, GameEnd.class));
+                break;
+            default:
+                break;
+        }
     }
 
     public void sendMove(String gameId, String uci) {
@@ -207,5 +274,7 @@ public final class GameSocket {
         }
         matchListener = null;
         gameListener = null;
+        currentConnection = null;
+        engineEarlyEvents.reset();
     }
 }

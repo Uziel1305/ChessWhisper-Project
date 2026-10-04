@@ -16,7 +16,7 @@ const ENGINE_MODES = new Set(['classic']);
 
 // The engine's thinking time per move — the same budget as one evaluation, so
 // an engine move costs the pool exactly one evaluation-sized slot.
-const ENGINE_MOVE_BUDGET_MS = 200;
+const ENGINE_MOVE_BUDGET_MS = 500;
 
 // If no legal move has been committed this long after the engine's turn began,
 // the engine forfeits. A frozen board is worse than an unrated win.
