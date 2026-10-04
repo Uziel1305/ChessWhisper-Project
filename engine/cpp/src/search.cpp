@@ -1,6 +1,53 @@
 #include "search.hpp"
 #include <iostream>
 #include <utility>
+#include <algorithm>
+namespace {
+
+// Ordering values, deliberately NOT eval.cpp's. Ordering needs only the
+// ranking, and sharing the numbers would mean a future evaluation tweak
+// silently reorders the search.
+//
+// Indexed by chess.hpp's PieceType: PAWN 0 to KING 5, with NONE 6 so an empty
+// square cannot read off the end. Small on purpose — Move::setScore takes an
+// int16_t, and the textbook victim * 100 overflows on PxQ, wraps negative, and
+// sorts captures LAST with nothing anywhere reporting it.
+constexpr int ORDER[] = {1, 3, 3, 5, 9, 0, 0};   // P N B R Q K, none
+
+// MVV-LVA: most valuable victim, least valuable attacker.
+//
+// The victim dominates and the attacker breaks ties, so PxQ is tried before
+// QxQ — if the queen is defended the pawn capture still wins 800 where the
+// queen capture only trades, which makes the cheap attacker the move more
+// likely to be good. Quiet moves score 0 and keep the generator's order.
+//
+// This does not know whether a capture is sound: QxP onto a defended pawn still
+// sorts above every quiet move. Knowing better is static exchange evaluation;
+// this is the cheap approximation, and a losing capture is refuted immediately
+// anyway, so it costs a few nodes rather than a wrong answer.
+int orderScore(const Position& pos, Move m) {
+    // En passant takes a pawn that is not on the destination square, so the
+    // lookup below would score it as a quiet move.
+    if (m.typeOf() == Move::ENPASSANT) return 10 * ORDER[0] - ORDER[0];
+
+    const PieceType victim = pos.pieceAt(m.to().index()).type();
+    if (victim == PieceType::NONE) return 0;
+
+    const PieceType attacker = pos.pieceAt(m.from().index()).type();
+    return 10 * ORDER[static_cast<int>(victim)] - ORDER[static_cast<int>(attacker)];
+}
+
+void orderMoves(const Position& pos, MoveList& moves) {
+    for (Move& m : moves)
+        m.setScore(static_cast<std::int16_t>(orderScore(pos, m)));
+    // Stable: every quiet move scores 0, and reshuffling them differently at
+    // each node would be churn with no information behind it.
+    std::stable_sort(moves.begin(), moves.end(),
+                     [](Move a, Move b) { return a.score() > b.score(); });
+}
+
+}  // namespace
+
 
 //checks if time passed 
 bool Searcher::outOfTime() {
@@ -52,7 +99,7 @@ int Searcher::negamax(Position& pos, int depth, int ply, int alpha, int beta) {
     if (depth <= 0) {
         return eval_.evaluate(pos);
     }
-
+    orderMoves(pos, moves);
     int best = -INF_SCORE;
     for (int i = 0; i < moves.size(); ++i) {
         const Move m = moves[i];
@@ -98,7 +145,7 @@ SearchResult Searcher::searchDepth(Position& pos, int depth, Move previousBest) 
 
     MoveList moves;
     pos.legalMoves(moves);
-
+    orderMoves(pos, moves);
     // Search the previous iteration's best move first. This is the whole reason
     // iterative deepening pays for its re-searches: the move that was best at
     // depth d-1 is usually best at depth d, so it raises alpha on the very first
