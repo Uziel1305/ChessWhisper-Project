@@ -21,6 +21,10 @@ COPY facade/package*.json ./
 RUN npm ci --omit=dev
 COPY facade/ ./
 COPY --from=build /src/build/chesswhisper_engine ./engine/chesswhisper_engine
+# The trained evaluator the engine loads by default. 65 KB, so baking it into
+# the image beats a volume mount; without it the engine falls back to material
+# counting and only says so on stderr.
+COPY cpp/weights/*.weights ./
 CMD ["node", "src/index.js"]
 
 

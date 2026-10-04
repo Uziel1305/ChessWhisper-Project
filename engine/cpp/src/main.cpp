@@ -14,9 +14,37 @@ int main(){
     string line;
     //holds the position of the game
     Position pos;
-    // The live evaluator. Matches the option's declared default below, and is
-    // never null — "material" is a name makeEvaluator knows.
-    std::unique_ptr<Evaluator> evaluator = makeEvaluator("material");
+    // What the live evaluator was built from. Held because the two options that
+    // determine it arrive in either order: a GUI may send EvalFile after Eval,
+    // and "mlp with no path yet" has to become "mlp with a path" without the
+    // engine ever holding a null evaluator.
+    //
+    // Relative to the engine's working directory, which in the image is the
+    // directory the binary and the weights are copied into.
+    std::string evalFile = "model6_run13.weights";
+    std::string evalName = "mlp";
+    // The live evaluator, and it is never null. mlp is the default, so startup
+    // has to survive the weights being absent — a UCI engine that dies before
+    // "uciok" tells a GUI nothing at all. The fallback is logged, and the
+    // handshake prints its default from evalName, so what it declares is what is
+    // actually live rather than what was intended.
+    std::unique_ptr<Evaluator> evaluator = makeEvaluator(evalName, evalFile);
+    if (!evaluator) {
+        std::cerr << "falling back to material: the mlp weights did not load\n";
+        evalName = "material";
+        evaluator = makeEvaluator(evalName);
+    }
+
+    const auto applyEvaluator = [&] {
+        if (auto next = makeEvaluator(evalName, evalFile)) {
+            evaluator = std::move(next);
+            return true;
+        }
+        return false;
+    };
+    
+    
+    
     // The depth ceiling for an untimed search, and the fallback when a go command
     // names neither a depth nor a budget. Settable so one binary runs at several
     // depths from a fastchess config without a rebuild.
@@ -38,27 +66,50 @@ int main(){
             // Declared so a GUI can offer it and, more importantly, reject a
             // misspelled value instead of silently running the default. More
             // variants get added here as evaluators land.
-            cout<<"option name Eval type combo default material var material\n";
+            cout<<"option name Eval type combo default "<<evalName
+                <<" var material var mlp var blend\n";
+            cout<<"option name EvalFile type string default "<<evalFile<<"\n";
             cout<<"option name Depth type spin default 4 min 1 max "<<MAX_PLY<<"\n";
             cout<<"option name AlphaBeta type check default true\n";
             cout<<"option name IterativeDeepening type check default true\n";
             cout << "uciok\n";
             cout.flush();
         } else if (token == "setoption") {
-            // setoption name <id> [value <x>]. Our option names and values
-            // contain no spaces, so one token each is enough.
+            // setoption name <id> [value <x>]. Our option names contain no
+            // spaces, so one token is enough for the name.
             string word, name, value;
             while (iss >> word) {
                 if (word == "name") iss >> name;
-                else if (word == "value") iss >> value;
+                else if (word == "value") {
+                    // The remainder of the line, trimmed. Every option but
+                    // EvalFile has a single-token value, so this costs them
+                    // nothing — and EvalFile stops breaking on a path with a
+                    // space in it, which this repository's own path has.
+                    std::getline(iss, value);
+                    const auto first = value.find_first_not_of(" \t");
+                    const auto last = value.find_last_not_of(" \t\r");
+                    value = (first == string::npos) ? "" : value.substr(first, last - first + 1);
+                }
             }
             if (name == "Eval") {
-                // Only swap on success — an unrecognised value must not leave
-                // the engine holding no evaluator at all.
-                if (auto next = makeEvaluator(value)) {
-                    evaluator = std::move(next);
-                } else {
+                // Only swap on success — an unrecognised value, or a weights
+                // file that will not load, must not leave the engine holding no
+                // evaluator at all.
+                const string previous = evalName;
+                evalName = value;
+                if (!applyEvaluator()) {
+                    evalName = previous;
                     std::cerr << "unknown Eval value: " << value << "\n";
+                }
+            } else if (name == "EvalFile") {
+                const string previous = evalFile;
+                evalFile = value;
+                // Only reloads when the MLP is the live evaluator. Setting the
+                // path while running material is a GUI stating a default, not a
+                // request to switch.
+                if ((evalName == "mlp" || evalName == "blend") && !applyEvaluator()) {
+                    evalFile = previous;
+                    std::cerr << "keeping the previous weights file\n";
                 }
             }else if (name == "Depth") {
                 std::istringstream vs(value);
