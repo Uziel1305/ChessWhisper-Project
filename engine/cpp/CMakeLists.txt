@@ -15,8 +15,11 @@ endif()
 add_library(engine_core STATIC
     src/board.cpp
     src/eval.cpp
+    src/mlp.cpp
     src/search.cpp
 )
+add_executable(weights_dump tests/weights_dump.cpp)
+target_link_libraries(weights_dump PRIVATE engine_core)
 target_include_directories(engine_core PUBLIC third_party src)
 
 # Static C++ runtime: the build stage compiles with GCC 13 but the runtime image

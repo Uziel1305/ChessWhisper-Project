@@ -62,6 +62,23 @@ public:
     Piece pieceAt(int sq) const { 
         return board_.at(sq); 
     }
+    // Castling rights, two of the model's five binary inputs per colour. The
+    // encoder's order is White kingside, White queenside, Black kingside,
+    // Black queenside — pinned in ml/scripts/encode.py, and the C++ side must
+    // follow it rather than re-derive it: a swapped pair produces a model that
+    // loads cleanly and evaluates nonsense, with nothing downstream to catch it.
+    //
+    // Read from the board, never from fen(). That would build and parse a
+    // string inside the search's hot loop to recover four bits the board
+    // already holds.
+    bool canCastleKingSide(Color c) const {
+        return board_.castlingRights().has(
+            c, chess::Board::CastlingRights::Side::KING_SIDE);
+    }
+    bool canCastleQueenSide(Color c) const {
+        return board_.castlingRights().has(
+            c, chess::Board::CastlingRights::Side::QUEEN_SIDE);
+    }
 
 private:
     chess::Board board_;
