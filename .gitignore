@@ -65,3 +65,21 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+
+# ---- ML experiment artifacts ----
+# ~52 MB of checkpoints, exported weights and per-position prediction dumps
+# across thirty-odd runs, all reproducible from the notebooks and the dataset.
+# The history files stay: a few KB each, and they ARE the experiment record —
+# every run's config, its validation curve, and what it changed from the
+# baseline. Losing those loses the reason the shipped model was chosen.
+ml/models/*
+!ml/models/*_history.json
+
+# Notebooks, except the ones the results actually rest on.
+ml/notebooks/*
+!ml/notebooks/model2.ipynb
+!ml/notebooks/model5CNN.ipynb
+!ml/notebooks/model6.ipynb
+!ml/notebooks/model6_run7.ipynb
+!ml/notebooks/model6_run13.ipynb
