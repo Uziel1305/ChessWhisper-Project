@@ -195,7 +195,7 @@ describe('games against the engine', () => {
         expect(committed).toMatchObject({ type: 'move.committed', uci: 'e2e4' });
         expect(committed.fen.split(' ')[1]).toBe('b');
         expect(committed.legalMoves).toContain('e7e5');
-        expect(engineClient.chooseMove).toHaveBeenCalledWith(START_FEN, 500);
+        expect(engineClient.chooseMove).toHaveBeenCalledWith(START_FEN, 800);
 
         const moves = (await pool.query('SELECT ply, uci FROM moves WHERE game_id = $1', [gameId])).rows;
         expect(moves).toEqual([{ ply: 1, uci: 'e2e4' }]);

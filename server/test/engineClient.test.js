@@ -79,8 +79,8 @@ describe('engineClient.evaluate', () => {
 
         await evaluate(FEN);
 
-        expect(DEFAULT_BUDGET_MS).toBe(500);
-        expect(stub.requests[0].body.budgetMs).toBe(500);
+        expect(DEFAULT_BUDGET_MS).toBe(800);
+        expect(stub.requests[0].body.budgetMs).toBe(800);
     });
 
     it('rejects when the engine never answers', async () => {
