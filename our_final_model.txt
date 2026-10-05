@@ -1,0 +1,256 @@
+================================================================================
+THE W32 EVALUATION MODEL - DESIGN AND MEASURED PLAYING STRENGTH
+ChessWhisper custom chess engine
+================================================================================
+
+
+1. WHAT THE MODEL IS
+--------------------------------------------------------------------------------
+
+A chess engine needs two things: a SEARCH that explores possible move sequences,
+and an EVALUATION that scores a position at the end of each sequence. The search
+is negamax with alpha-beta pruning and iterative deepening. The evaluation is a
+small neural network, trained by us, and it is the subject of this document.
+
+The network, which we call "w32":
+
+    input        64 squares, each one of 13 categories (6 white pieces,
+                 6 black pieces, empty), plus 5 binary inputs (side to move
+                 and the four castling rights)
+    embedding    each category is mapped to 8 learned numbers, shared across
+                 all 64 squares  ->  64 x 8 + 5 = 517 inputs
+    hidden       one layer of 32 units, ReLU activation
+    output       one number: the position's value, from the side to move's view
+    size         16,713 parameters
+
+Training data: 500,000 positions sampled from real Lichess games, each labelled
+by Stockfish 19 at a fixed budget of 110,000 nodes. A separate 50,000 positions
+were held back for validation and another 50,000 as a frozen test set. The splits
+are separated BY GAME, not by position, because consecutive positions in one game
+are nearly identical and splitting at the position level would leak information
+between training and evaluation.
+
+The network predicts a transformed target, asinh(cp / 200), rather than raw
+centipawns. Raw centipawns are a poor regression target because the distribution
+has a long tail: forced mates are encoded around 10,000 while the median position
+is around 250, so squared error would be dominated almost entirely by mates.
+The transform is linear near equality and logarithmic in the tail, and it has an
+exact inverse, so the engine recovers centipawns with no approximation.
+
+
+2. WHY THE NETWORK IS THIS SMALL - THE KEY ENGINEERING RESULT
+--------------------------------------------------------------------------------
+
+The first layer is a sum over all 64 squares, but at most 32 squares are occupied
+and all the empty ones contribute the same constant. That lets the whole input
+stage be precomputed into a lookup table once, at load time:
+
+    sum of W * E[piece]  =  [constant for an empty board]
+                            + sum over OCCUPIED squares of W * (E[piece] - E[empty])
+
+So evaluating a position costs one vector addition per occupied piece, plus one
+dot product for the output layer:
+
+    cost per evaluation  =  occupied_squares x hidden_width + hidden_width
+
+Two consequences follow, and they shaped every design decision:
+
+  (a) The embedding width and the size of the input are FREE at inference time.
+      They disappear into the precomputed table. Only the hidden width costs.
+
+  (b) A second hidden layer is a dense matrix product that nothing can fold, so
+      depth is expensive in a way width is not. This is why the model has exactly
+      one hidden layer.
+
+Measured cost, and the accuracy that came with it:
+
+    hidden width    operations per    validation MSE
+                     evaluation       (lower is better)
+        256             8,448            0.25702
+        128             4,224            0.25499
+         64             2,112            0.25160
+         32 (w32)       1,056            shipped
+
+Narrowing the network improved accuracy AND cost at every step. That is not the
+usual trade-off, and it means these models were never capacity-limited by the
+500,000 training rows - the larger ones were simply overfitting slightly while
+also being four to eight times more expensive per position searched. Since a
+cheaper evaluation lets the search go deeper in the same time, smaller was better
+twice over.
+
+The series stopped at 32: w32 against the width-64 model was +1.74 +/- 36.97 Elo,
+a statistical dead heat. Below roughly 2,000 operations per evaluation the network
+is no longer the dominant cost per node, so halving it again buys search depth
+that does not arrive.
+
+
+3. HOW STRENGTH WAS MEASURED
+--------------------------------------------------------------------------------
+
+All results below come from engine-versus-engine matches run with fastchess, using
+a standard 8-move opening suite, paired games with reversed colours (so neither
+side benefits from a favourable opening), and a fixed time per move.
+
+Elo differences are reported with a 95% confidence interval. An interval that
+includes zero means the result does not establish which engine is stronger. This
+matters a great deal here: at 100-200 games the interval is roughly +/-35 to +/-50
+Elo, so differences smaller than that are simply not measurable, however
+suggestive the point estimate looks.
+
+
+4. RESULT 1 - W32 AGAINST A HAND-WRITTEN MATERIAL EVALUATOR
+--------------------------------------------------------------------------------
+
+The baseline is a conventional evaluator that just counts material by piece value.
+Both sides are the same binary, with a command-line option selecting the
+evaluator, so search and move ordering are identical and the network is the only
+difference.
+
+    time per move   games   score    Elo difference
+       200 ms        200    54.75%   +33.11 +/- 32.55
+       400 ms        200    53.25%   +22.62 +/- 30.91
+
+The trained network beats hand-written material counting, but by a modest margin,
+and the intervals only just exclude zero.
+
+We also tested a hybrid that averages the network's output with the material
+score. It was the WEAKEST of the three, losing to the plain network by
+48.96 +/- 49.49 Elo. The likely reason is a scale mismatch: the network is trained
+on a transformed target and the material count is in raw centipawns, so averaging
+them combines two quantities that do not share a scale.
+
+
+5. RESULT 2 - AGAINST MAIA, NETWORKS TRAINED TO IMITATE HUMAN PLAY
+--------------------------------------------------------------------------------
+
+Maia (Computational Social Science Lab, University of Toronto) is a family of
+networks trained to predict the move a human of a given rating would play. Each
+is labelled with the Lichess rating band it was trained on. Following the authors'
+own instructions, Maia is run with a node limit of 1, meaning it performs NO
+search at all and plays its single highest-probability move. We verified this from
+the engine logs rather than assuming it: Maia's measured thinking time was 2.0 ms
+per move against our engine's 500 ms.
+
+    opponent     our time    games   score     Elo difference      implied rating
+    maia-1400      500 ms      40    73.75%   +179.45 +/-  81.57       1579
+    maia-1500      500 ms      40    90.00%   +381.70 +/- 208.94       1882
+    maia-1600      500 ms      40    77.50%   +214.85 +/- 109.57       1815
+    maia-1700      800 ms      40    87.50%   +338.04 +/- 170.56       2038
+    maia-1800      800 ms      40    66.25%   +117.16 +/-  79.21       1917
+    maia-1900      800 ms      40    70.00%   +147.19 +/-  81.15       2047
+
+Our engine beats every published Maia network, including the strongest (maia-1900),
+which it still defeats 70% of the time. No Maia level brings the match near 50%,
+so this ladder cannot bracket our engine's strength from above.
+
+These numbers must be read with two caveats, and we do not treat the implied
+ratings as our engine's rating:
+
+  (a) The ladder is internally inconsistent at the lower levels. The implied
+      ratings from maia-1400 and maia-1600 have confidence intervals that do not
+      overlap ([1488, 1671] and [1705, 1925]), and we beat maia-1500 more easily
+      than maia-1400 - the wrong way round. Three anchors on one valid scale
+      should agree; these do not. The 1700-1900 set is better behaved.
+
+  (b) More fundamentally, Maia performs no search. Our engine searches five plies
+      with alpha-beta pruning and capture ordering, so it wins tactical sequences
+      that a search-less network is structurally unable to see. A tactical
+      searcher therefore beats a policy network by more than their relative
+      human-equivalent strength would suggest. The Maia authors also note that
+      their models are stronger than their label, because they play the AVERAGE
+      move of a player at that rating and never blunder from fatigue.
+
+
+6. RESULT 3 - AGAINST STOCKFISH AT LIMITED STRENGTH (THE MAIN ESTIMATE)
+--------------------------------------------------------------------------------
+
+Stockfish can be restricted to a target strength with its UCI_LimitStrength and
+UCI_Elo options. Unlike Maia it performs a real search, which makes it the more
+meaningful opponent for an engine whose advantage comes from searching.
+
+    anchor     our time    games   score     Elo difference      implied rating
+    sf1320       500 ms      20    82.50%   +269.37 +/- 219.00       1589
+    sf1450       600 ms      20    55.00%    +34.86 +/- 153.92       1485
+    sf1600       500 ms      38    21.05%   -229.61 +/- 126.45       1370
+
+BEST ESTIMATE: approximately 1485 Elo, on Stockfish 19's own UCI_Elo scale.
+
+That figure comes from the sf1450 match because it is nearest to 50%, where the
+Elo model is most precise - at an 82% or 21% score, a few unlucky games move the
+estimate far more than they should.
+
+Two honest qualifications:
+
+  (a) The implied rating FALLS as the anchor rises (1589, 1485, 1370). On a
+      well-calibrated scale it would be constant. This suggests Stockfish's
+      UCI_Elo scale is compressed at the low end: a nominal 280-point gap from
+      1320 to 1600 appears to contain roughly 500 points of real strength.
+      It is a self-calibrated scale, not a public rating list, so this number is
+      not directly comparable to a FIDE or Chess.com rating.
+
+  (b) The three matches were not all run at the same time per move (500, 600 and
+      500 ms), which contributes some of that trend and should be removed by a
+      rerun at a single budget. The samples are also small - 20 to 38 games. A
+      400-game match would reduce the interval from about +/-154 to about +/-25
+      and is the obvious next measurement.
+
+
+7. THE PRINCIPAL FINDING
+--------------------------------------------------------------------------------
+
+Across the whole project, the measured contribution of each change was:
+
+    move ordering (MVV-LVA)        ~220 Elo    +219.87 +/- 47.24, 200 games
+    network width (256 -> 64)       ~68 Elo
+    everything about model accuracy    ~0      not separately measurable
+
+Move ordering dominates everything else, and it is worth explaining why, because
+it is the clearest result we have. MVV-LVA searches capture moves in order of
+most-valuable-victim first. It does not change what the search computes at all:
+at a fixed depth of five plies, the evaluation and the chosen move are IDENTICAL
+with and without it. What changes is the cost - the node count falls from 516,368
+to 137,401, and the effective branching factor between depths four and five falls
+from 9.73 to 6.19. Because that is a reduction in the branching factor rather
+than a constant saving, the benefit compounds with every additional ply.
+
+The contrast with the model work is the substantive lesson. Every measurable
+improvement in the network's accuracy - the Huber loss, the target-scale sweep,
+the width reductions - produced an Elo change smaller than the confidence
+interval of the match that tried to detect it. Thirty lines of move ordering
+produced 220 Elo with the LOS at 100%.
+
+The explanation is the cost model from section 2. At a fixed time budget, the
+engine's strength is governed by how deep it can search, and depth is governed by
+cost per node and by how efficiently the tree is pruned. A better evaluation
+function improves the score at each leaf; better ordering changes how many leaves
+have to be visited at all. At this scale the second effect is larger by an order
+of magnitude.
+
+
+8. LIMITATIONS
+--------------------------------------------------------------------------------
+
+  - Elo is not an absolute quantity. It is defined only relative to a pool of
+    opponents, so every figure here carries the scale it was measured on. Our two
+    anchors disagree by roughly 550 points (about 1485 against Stockfish, about
+    2000 against Maia), and that gap is itself a finding: it is almost entirely
+    explained by whether the opponent searches.
+
+  - Most matches are 20-200 games, giving intervals of +/-35 to +/-220 Elo. Several
+    results are therefore directional rather than established.
+
+  - The engine has no quiescence search. It evaluates positions in the middle of
+    an unresolved capture sequence, which is the largest known weakness in the
+    search and the next planned improvement. Given the result in section 7, it is
+    also where the next real gain is most likely to come from.
+
+  - The evaluation network is trained against Stockfish's judgements at a fixed
+    node budget, so it inherits that engine's biases and cannot in principle
+    exceed its teacher's accuracy at that depth.
+
+--------------------------------------------------------------------------------
+Tools: fastchess 1.8.2 for all matches; Stockfish 19 (version-pinned by SHA-256)
+both for dataset labelling and as a sparring opponent; lc0 0.32.1 to run the Maia
+networks; the standard 8moves_v3 opening suite. The engine, the training pipeline,
+the evaluation function and the search are our own work; chess rules and move
+generation come from a vendored MIT-licensed library.
