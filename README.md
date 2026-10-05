@@ -165,12 +165,3 @@ The tests need the `db` service, which is reachable only on the compose network.
 ├── .env.example          Template for the root .env
 └── CLAUDE.md             Design decisions log
 ```
-
-## Team
-
-| Member | Responsibilities |
-|---|---|
-| Tamir Ashwal | Android client, server clock logic |
-| Uziel Pashayev | WebSocket hub, matchmaking, rules wrapper, move pipeline |
-| TODO: owner | C++ engine |
-| TODO: owner | `ml/` dataset pipeline |
